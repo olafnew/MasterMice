@@ -1,15 +1,19 @@
 @echo off
 :: ──────────────────────────────────────────────────────────────
-:: build.bat — Build a portable LogiControl distribution
+:: build.bat — Build a portable Mouser distribution
 ::
-:: Produces:  dist\LogiControl\LogiControl.exe   (+ supporting files)
+:: Produces:  dist\Mouser\Mouser.exe   (+ supporting files)
 :: Zip that folder and distribute — no Python install required.
+::
+:: Usage:  build.bat           — incremental (fast, reuses cache)
+::         build.bat --clean   — full clean rebuild
 :: ──────────────────────────────────────────────────────────────
-title LogiControl — Build
+title Mouser — Build
 cd /d "%~dp0"
+set "START_TIME=%TIME%"
 
 echo.
-echo ===  LogiControl Portable Build  ===
+echo ===  Mouser Portable Build  ===
 echo.
 
 :: ── 1. Activate venv if present ──────────────────────────────
@@ -28,17 +32,25 @@ if %errorlevel% neq 0 (
 )
 
 :: ── 3. Clean previous build ──────────────────────────────────
-if exist "dist\LogiControl" (
-    echo [*] Removing previous dist\LogiControl...
-    rmdir /s /q "dist\LogiControl"
+:: Always clean dist (output); only clean build cache with --clean
+if exist "dist\Mouser" (
+    echo [*] Removing previous dist\Mouser...
+    rmdir /s /q "dist\Mouser"
 )
-if exist "build\LogiControl" (
-    rmdir /s /q "build\LogiControl"
+if /i "%~1"=="--clean" (
+    if exist "build\Mouser" (
+        echo [*] Full clean: removing build cache...
+        rmdir /s /q "build\Mouser"
+    )
+) else (
+    if exist "build\Mouser" (
+        echo [*] Incremental build — reusing analysis cache
+    )
 )
 
 :: ── 4. Run PyInstaller ───────────────────────────────────────
 echo [*] Building with PyInstaller...
-pyinstaller LogiControl.spec --noconfirm
+pyinstaller Mouser.spec --noconfirm
 
 if %errorlevel% neq 0 (
     echo.
@@ -50,10 +62,13 @@ if %errorlevel% neq 0 (
 :: ── 5. Copy default config if missing ────────────────────────
 :: (not needed — config is auto-created at first run in %APPDATA%)
 
+set "END_TIME=%TIME%"
 echo.
 echo ===  Build complete!  ===
-echo Output: dist\LogiControl\LogiControl.exe
+echo Output: dist\Mouser\Mouser.exe
+echo Started:  %START_TIME%
+echo Finished: %END_TIME%
 echo.
-echo To distribute: zip the  dist\LogiControl  folder.
+echo To distribute: zip the  dist\Mouser  folder.
 echo.
 pause

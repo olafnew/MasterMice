@@ -7,7 +7,7 @@ import json
 import os
 import sys
 
-CONFIG_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "LogiControl")
+CONFIG_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Mouser")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 
 # Which mouse events map to which friendly button names

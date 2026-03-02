@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for LogiControl
-Produces a single-directory portable build in  dist/LogiControl/
-Run:  pyinstaller LogiControl.spec
+PyInstaller spec file for Mouser
+Produces a single-directory portable build in  dist/Mouser/
+Run:  pyinstaller Mouser.spec
 """
 
 import os
@@ -75,12 +75,32 @@ a = Analysis(
         "PySide6.QtVirtualKeyboard",
         "PySide6.QtGraphs",
         "PySide6.Qt5Compat",
+        # ── PySide6 designer / tools (not needed at runtime) ──
+        "PySide6.QtDesigner",
+        "PySide6.QtHelp",
+        "PySide6.QtUiTools",
+        "PySide6.QtXml",
+        "PySide6.QtConcurrent",
+        "PySide6.QtDBus",
+        "PySide6.QtStateMachine",
+        "PySide6.QtHttpServer",
+        "PySide6.QtSpatialAudio",
         # ── Other unused stdlib modules ──
         "unittest",
         "xmlrpc",
         "pydoc",
         "doctest",
         "tkinter",
+        "test",
+        "distutils",
+        "setuptools",
+        "ensurepip",
+        "lib2to3",
+        "idlelib",
+        "turtledemo",
+        "turtle",
+        "sqlite3",
+        "multiprocessing",
     ],
     noarchive=False,
 )
@@ -146,7 +166,7 @@ exe = EXE(
     a.scripts,
     [],                     # not one-file (faster startup, easier debugging)
     exclude_binaries=True,
-    name="LogiControl",
+    name="Mouser",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -164,14 +184,14 @@ coll = COLLECT(
     strip=False,
     upx=False,              # UPX OFF — faster cold start
     upx_exclude=[],
-    name="LogiControl",
+    name="Mouser",
 )
 
 # ── Post-build cleanup: remove Qt QML/plugin dirs we don't need ──────────
 # PyInstaller's hooks copy the entire PySide6 QML tree; we only need
 # QtQuick/Controls + Material, QtQml, QtQuick/Layouts, QtQuick/Templates,
 # QtQuick/Window.  Everything else is dead weight that slows startup.
-_dist = os.path.join("dist", "LogiControl", "_internal", "PySide6")
+_dist = os.path.join("dist", "Mouser", "_internal", "PySide6")
 
 # QML dirs to KEEP (everything else under qml/ is deleted)
 _keep_qml = {
@@ -224,6 +244,6 @@ def _cleanup():
         shutil.rmtree(trans, ignore_errors=True)
         print("  [cleanup] removed translations/")
 
-print("[LogiControl] Post-build cleanup...")
+print("[Mouser] Post-build cleanup...")
 _cleanup()
-print("[LogiControl] Cleanup done.")
+print("[Mouser] Cleanup done.")

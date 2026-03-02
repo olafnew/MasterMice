@@ -475,7 +475,7 @@ class MouseHook:
     def _setup_raw_input(self):
         """Create hidden window and register for Raw Input on the hook thread."""
         hInst = GetModuleHandleW(None)
-        cls_name = f"LogiControlRawInput_{id(self)}"
+        cls_name = f"MouserRawInput_{id(self)}"
 
         self._ri_wndproc_ref = WNDPROC_TYPE(self._ri_wndproc)
 
@@ -491,7 +491,7 @@ class MouseHook:
             pass
 
         self._ri_hwnd = CreateWindowExW(
-            0, cls_name, "LogiControl RI", 0,
+            0, cls_name, "Mouser RI", 0,
             0, 0, 1, 1,
             None, None, hInst, None,
         )
