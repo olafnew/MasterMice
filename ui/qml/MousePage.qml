@@ -798,20 +798,29 @@ Item {
 
     Dialog {
         id: deleteDialog
+        parent: Overlay.overlay
         modal: true
         focus: true
         title: "Delete profile?"
         width: 380
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
         standardButtons: Dialog.Ok | Dialog.Cancel
 
-        onAccepted: {
+        function confirmDelete() {
             if (pendingDeleteProfile && pendingDeleteProfile !== "default") {
                 backend.deleteProfile(pendingDeleteProfile)
                 selectProfile(backend.activeProfile)
             }
             pendingDeleteProfile = ""
         }
-        onRejected: pendingDeleteProfile = ""
+
+        function cancelDelete() {
+            pendingDeleteProfile = ""
+        }
+
+        onAccepted: confirmDelete()
+        onRejected: cancelDelete()
 
         contentItem: Column {
             width: deleteDialog.availableWidth
