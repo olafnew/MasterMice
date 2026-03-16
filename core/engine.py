@@ -31,6 +31,7 @@ class Engine:
         self._profile_change_cb = None       # UI callback
         self._connection_change_cb = None   # UI callback for device status
         self._battery_read_cb = None        # UI callback for battery level
+        self._battery_poll_stop = threading.Event()
         self._lock = threading.Lock()
         self._setup_hooks()
         self.hook.set_connection_change_callback(self._on_connection_change)
@@ -119,23 +120,29 @@ class Engine:
                 self._connection_change_cb(connected)
             except Exception:
                 pass
+        self._battery_poll_stop.set()   # stop any existing poll loop
         if connected:
+            self._battery_poll_stop = threading.Event()
             threading.Thread(
-                target=self._read_battery_now, daemon=True, name="BatteryRead"
+                target=self._battery_poll_loop, daemon=True, name="BatteryPoll"
             ).start()
 
-    def _read_battery_now(self):
-        """Read battery level from HID++ and fire the callback. Runs on a background thread."""
+    def _battery_poll_loop(self):
+        """Read battery on connect then every 5 minutes while connected."""
         import time
         time.sleep(1)   # brief settle after connect
-        hg = self.hook._hid_gesture
-        if hg:
-            level = hg.read_battery()
-            if level is not None and self._battery_read_cb:
-                try:
-                    self._battery_read_cb(level)
-                except Exception:
-                    pass
+        stop = self._battery_poll_stop
+        while not stop.is_set():
+            hg = self.hook._hid_gesture
+            if hg:
+                level = hg.read_battery()
+                if level is not None and self._battery_read_cb:
+                    try:
+                        self._battery_read_cb(level)
+                    except Exception:
+                        pass
+            if stop.wait(300):   # 5 minutes between polls; exits immediately if stopped
+                break
 
     def set_battery_callback(self, cb):
         """Register ``cb(level: int)`` invoked when battery level is read (0-100)."""

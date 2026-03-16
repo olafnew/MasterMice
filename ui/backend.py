@@ -29,20 +29,17 @@ class Backend(QObject):
     statusMessage = Signal(str)
     dpiFromDevice = Signal(int)
     mouseConnectedChanged = Signal()
-    batteryLevelChanged = Signal()
 
     # Internal cross-thread signals
     _profileSwitchRequest = Signal(str)
     _dpiReadRequest = Signal(int)
     _connectionChangeRequest = Signal(bool)
-    _batteryChangeRequest = Signal(int)
 
     def __init__(self, engine=None, parent=None):
         super().__init__(parent)
         self._engine = engine
         self._cfg = load_config()
         self._mouse_connected = False
-        self._battery_level = -1  # -1 = unknown
 
         # Cross-thread signal connections
         self._profileSwitchRequest.connect(
@@ -51,15 +48,12 @@ class Backend(QObject):
             self._handleDpiRead, Qt.QueuedConnection)
         self._connectionChangeRequest.connect(
             self._handleConnectionChange, Qt.QueuedConnection)
-        self._batteryChangeRequest.connect(
-            self._handleBatteryChange, Qt.QueuedConnection)
 
         # Wire engine callbacks
         if engine:
             engine.set_profile_change_callback(self._onEngineProfileSwitch)
             engine.set_dpi_read_callback(self._onEngineDpiRead)
             engine.set_connection_change_callback(self._onEngineConnectionChange)
-            engine.set_battery_callback(self._onEngineBatteryRead)
 
     # ── Properties ─────────────────────────────────────────────
 
@@ -134,11 +128,6 @@ class Backend(QObject):
     @Property(bool, notify=mouseConnectedChanged)
     def mouseConnected(self):
         return self._mouse_connected
-
-    @Property(int, notify=batteryLevelChanged)
-    def batteryLevel(self):
-        """Battery percentage 0-100, or -1 if unknown."""
-        return self._battery_level
 
     @Property(list, notify=profilesChanged)
     def profiles(self):
@@ -276,10 +265,6 @@ class Backend(QObject):
         """Called from engine/hook thread — posts to Qt main thread."""
         self._connectionChangeRequest.emit(connected)
 
-    def _onEngineBatteryRead(self, level):
-        """Called from engine thread — posts to Qt main thread."""
-        self._batteryChangeRequest.emit(level)
-
     @Slot(str)
     def _handleProfileSwitch(self, profile_name):
         """Runs on Qt main thread."""
@@ -300,13 +285,4 @@ class Backend(QObject):
     def _handleConnectionChange(self, connected):
         """Runs on Qt main thread."""
         self._mouse_connected = connected
-        if not connected:
-            self._battery_level = -1
-            self.batteryLevelChanged.emit()
         self.mouseConnectedChanged.emit()
-
-    @Slot(int)
-    def _handleBatteryChange(self, level):
-        """Runs on Qt main thread."""
-        self._battery_level = level
-        self.batteryLevelChanged.emit()

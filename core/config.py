@@ -23,10 +23,29 @@ BUTTON_NAMES = {
     "hscroll_right": "Horizontal scroll right",
 }
 
+GESTURE_DIRECTION_BUTTONS = (
+    "gesture_left",
+    "gesture_right",
+    "gesture_up",
+    "gesture_down",
+)
+
+PROFILE_BUTTON_NAMES = {
+    **BUTTON_NAMES,
+    "gesture_left":  "Gesture swipe left",
+    "gesture_right": "Gesture swipe right",
+    "gesture_up":    "Gesture swipe up",
+    "gesture_down":  "Gesture swipe down",
+}
+
 # Maps config button keys to the MouseEvent types they correspond to
 BUTTON_TO_EVENTS = {
     "middle":        ("middle_down", "middle_up"),
-    "gesture":       ("gesture_down", "gesture_up"),
+    "gesture":       ("gesture_click",),
+    "gesture_left":  ("gesture_swipe_left",),
+    "gesture_right": ("gesture_swipe_right",),
+    "gesture_up":    ("gesture_swipe_up",),
+    "gesture_down":  ("gesture_swipe_down",),
     "xbutton1":      ("xbutton1_down", "xbutton1_up"),
     "xbutton2":      ("xbutton2_down", "xbutton2_up"),
     "hscroll_left":  ("hscroll_left",),
@@ -34,7 +53,7 @@ BUTTON_TO_EVENTS = {
 }
 
 DEFAULT_CONFIG = {
-    "version": 2,
+    "version": 3,
     "active_profile": "default",
     "profiles": {
         "default": {
@@ -43,6 +62,10 @@ DEFAULT_CONFIG = {
             "mappings": {
                 "middle": "none",
                 "gesture": "none",
+                "gesture_left": "none",
+                "gesture_right": "none",
+                "gesture_up": "none",
+                "gesture_down": "none",
                 "xbutton1": "alt_tab",
                 "xbutton2": "alt_tab",
                 "hscroll_left": "browser_back",
@@ -57,6 +80,11 @@ DEFAULT_CONFIG = {
         "invert_hscroll": False,  # swap horizontal scroll directions
         "invert_vscroll": False,  # swap vertical scroll directions
         "dpi": 1000,              # pointer speed / DPI setting
+        "gesture_threshold": 50,
+        "gesture_deadzone": 40,
+        "gesture_timeout_ms": 3000,
+        "gesture_cooldown_ms": 500,
+        "debug_mode": False,
     },
 }
 
@@ -187,6 +215,22 @@ def _migrate(cfg):
         cfg["settings"].setdefault("invert_vscroll", False)
         cfg["settings"].setdefault("dpi", 1000)
         cfg["version"] = 2
+
+    if version < 3:
+        settings = cfg.setdefault("settings", {})
+        settings.setdefault("gesture_threshold", 50)
+        settings.setdefault("gesture_deadzone", 40)
+        settings.setdefault("gesture_timeout_ms", 3000)
+        settings.setdefault("gesture_cooldown_ms", 500)
+        for pdata in cfg.get("profiles", {}).values():
+            mappings = pdata.setdefault("mappings", {})
+            mappings.setdefault("gesture", "none")
+            for key in GESTURE_DIRECTION_BUTTONS:
+                mappings.setdefault(key, "none")
+        cfg["version"] = 3
+
+    cfg.setdefault("settings", {})
+    cfg["settings"].setdefault("debug_mode", False)
 
     # Always migrate old wmplayer.exe → Microsoft.Media.Player.exe in profile apps
     for pdata in cfg.get("profiles", {}).values():

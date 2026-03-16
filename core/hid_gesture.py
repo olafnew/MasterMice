@@ -36,12 +36,10 @@ SHORT_LEN      = 7
 LONG_LEN       = 20
 
 BT_DEV_IDX     = 0xFF        # device-index for direct Bluetooth
-FEAT_IROOT          = 0x0000
-FEAT_REPROG_V4      = 0x1B04      # Reprogrammable Controls V4
-FEAT_ADJ_DPI        = 0x2201      # Adjustable DPI
-FEAT_UNIFIED_BATT   = 0x1004      # Unified Battery (preferred, returns 0-100%)
-FEAT_BATTERY_STATUS = 0x1000      # Battery Status (fallback, returns 0-100%)
-CID_GESTURE         = 0x00C3      # "Mouse Gesture Button"
+FEAT_IROOT     = 0x0000
+FEAT_REPROG_V4 = 0x1B04      # Reprogrammable Controls V4
+FEAT_ADJ_DPI   = 0x2201      # Adjustable DPI
+CID_GESTURE    = 0x00C3      # "Mouse Gesture Button"
 
 MY_SW          = 0x0A        # arbitrary software-id used in our requests
 
@@ -86,10 +84,6 @@ class HidGestureListener:
         self._running   = False
         self._feat_idx  = None          # feature index of REPROG_V4
         self._dpi_idx   = None          # feature index of ADJUSTABLE_DPI
-        self._battery_idx         = None   # feature index of battery feature
-        self._battery_feature_id  = None   # which feature: FEAT_UNIFIED_BATT or FEAT_BATTERY_STATUS
-        self._pending_battery = None       # sentinel for thread-safe battery read
-        self._battery_result  = None       # result after read
         self._dev_idx   = BT_DEV_IDX
         self._held      = False
         self._connected = False         # True while HID++ device is open
@@ -231,18 +225,11 @@ class HidGestureListener:
     # ── DPI control ───────────────────────────────────────────────
 
     def set_dpi(self, dpi_value):
-        """Queue a DPI change, persist to config, and apply on listener thread."""
+        """Queue a DPI change — will be applied on the listener thread.
+        Can be called from any thread.  Returns True on success."""
         dpi = max(200, min(8200, int(dpi_value)))  # MX Master 3S max is 8000
         self._dpi_result = None
         self._pending_dpi = dpi
-        # Persist DPI to config
-        try:
-            from core.config import load_config, save_config
-            cfg = load_config()
-            cfg["settings"]["dpi"] = dpi
-            save_config(cfg)
-        except Exception as e:
-            print(f"[HidGesture] Failed to save DPI: {e}")
         # Wait up to 3s for the listener thread to apply it
         for _ in range(30):
             if self._pending_dpi is None:
@@ -305,54 +292,6 @@ class HidGestureListener:
             print("[HidGesture] DPI read FAILED")
             self._dpi_result = None
         self._pending_dpi = None
-
-    # ── Battery ───────────────────────────────────────────────
-
-    def read_battery(self):
-        """Read battery level from device. Returns 0-100 (percent) or None.
-        Thread-safe: can be called from any thread."""
-        self._battery_result = None
-        self._pending_battery = "read"
-        for _ in range(30):
-            if self._pending_battery is None:
-                return self._battery_result
-            time.sleep(0.1)
-        print("[HidGesture] Battery read timed out")
-        return None
-
-    def _apply_pending_read_battery(self):
-        """Called from the listener thread to read the battery level."""
-        if self._battery_idx is None or self._dev is None:
-            self._battery_result = None
-            self._pending_battery = None
-            return
-        if self._battery_feature_id == FEAT_UNIFIED_BATT:
-            # getStatus: function 1 → [soc, level_status, charging_status, ext_power]
-            resp = self._request(self._battery_idx, 1, [])
-            if resp:
-                _, _, _, _, p = resp
-                soc = p[0] if p else None
-                if soc is not None and 0 <= soc <= 100:
-                    print(f"[HidGesture] Battery (unified): {soc}%")
-                    self._battery_result = soc
-                else:
-                    self._battery_result = None
-            else:
-                self._battery_result = None
-        else:
-            # BATTERY_STATUS: getBatteryLevelStatus function 0 → [level, next_level, status]
-            resp = self._request(self._battery_idx, 0, [])
-            if resp:
-                _, _, _, _, p = resp
-                level = p[0] if p else None
-                if level is not None and 0 <= level <= 100:
-                    print(f"[HidGesture] Battery (status): {level}%")
-                    self._battery_result = level
-                else:
-                    self._battery_result = None
-            else:
-                self._battery_result = None
-        self._pending_battery = None
 
     # ── notification handling ─────────────────────────────────────
 
@@ -431,18 +370,6 @@ class HidGestureListener:
                     if dpi_fi:
                         self._dpi_idx = dpi_fi
                         print(f"[HidGesture] Found ADJUSTABLE_DPI @0x{dpi_fi:02X}")
-                    # Discover battery feature (prefer UNIFIED_BATT 0x1004)
-                    batt_fi = self._find_feature(FEAT_UNIFIED_BATT)
-                    if batt_fi:
-                        self._battery_idx = batt_fi
-                        self._battery_feature_id = FEAT_UNIFIED_BATT
-                        print(f"[HidGesture] Found UNIFIED_BATT @0x{batt_fi:02X}")
-                    else:
-                        batt_fi = self._find_feature(FEAT_BATTERY_STATUS)
-                        if batt_fi:
-                            self._battery_idx = batt_fi
-                            self._battery_feature_id = FEAT_BATTERY_STATUS
-                            print(f"[HidGesture] Found BATTERY_STATUS @0x{batt_fi:02X}")
                     if self._divert():
                         return True
                     break        # right device but divert failed
@@ -482,9 +409,6 @@ class HidGestureListener:
                             self._apply_pending_read_dpi()
                         else:
                             self._apply_pending_dpi()
-                    # Apply any queued battery read
-                    if self._pending_battery is not None:
-                        self._apply_pending_read_battery()
                     raw = self._rx(1000)
                     if raw:
                         self._on_report(raw)
@@ -500,10 +424,6 @@ class HidGestureListener:
                 pass
             self._dev = None
             self._feat_idx = None
-            self._dpi_idx = None
-            self._battery_idx = None
-            self._battery_feature_id = None
-            self._pending_battery = None
             self._held = False
             if self._connected:
                 self._connected = False

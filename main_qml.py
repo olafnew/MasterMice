@@ -269,6 +269,27 @@ def main():
     toggle_action.triggered.connect(toggle_remapping)
     tray_menu.addAction(toggle_action)
 
+    debug_action = QAction("Enable Debug Mode", tray_menu)
+
+    def sync_debug_action():
+        debug_enabled = bool(backend.debugMode)
+        debug_action.setText(
+            "Disable Debug Mode" if debug_enabled else "Enable Debug Mode"
+        )
+
+    def toggle_debug_mode():
+        backend.setDebugMode(not backend.debugMode)
+        sync_debug_action()
+        if backend.debugMode:
+            root_window.show()
+            root_window.raise_()
+            root_window.requestActivate()
+
+    debug_action.triggered.connect(toggle_debug_mode)
+    tray_menu.addAction(debug_action)
+    backend.settingsChanged.connect(sync_debug_action)
+    sync_debug_action()
+
     tray_menu.addSeparator()
 
     quit_action = QAction("Quit Mouser", tray_menu)
