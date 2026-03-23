@@ -1,0 +1,396 @@
+MasterMice Changelog
+====================
+Forked from: https://github.com/TomBadash/Mouser (commit a96d78b)
+Renamed from "Mouser" to "MasterMice" at v0.31
+
+v0.392 (2026-03-20)
+───────────────────
+FIX:
+  - Connection type icons: replaced broken SVG rendering with actual PNG logos.
+    Unifying (orange sunburst), Bolt (green hexagonal lightning), Bluetooth
+    (standard blue logo). Loaded directly as PNG images at 16×16px.
+
+v0.391 (2026-03-20)
+───────────────────
+FIX:
+  - Unifying SVG icon updated (previous rendered as ⊗). Colored SVGs: Unifying
+    orange, Bolt teal, Bluetooth accent. (Still not correct — replaced in 0.392)
+
+v0.39 (2026-03-20)
+───────────────────
+COMBINED BUILD (v0.39 + v0.40 + v0.41 scope):
+CLEANUP:
+  - Codebase cleanup: removed 25+ leftover PyInstaller .spec files, old Mouser.*
+    files, unused images (logo.ico, logo.png, Screenshot.png), old haptic probe
+    tools (kept only mx4_haptic_probe.py + haptic_hybrid.py + core tools).
+    All removed files backed up to _backup_pre_cleanup/.
+  - Project structure is now clean: core/, ui/, images/, tools/ (6 files),
+    and root config files only.
+NEW:
+  - Connection type SVG icons: Unifying (dongle), Bolt (lightning), Bluetooth
+    rendered via appicons with theme coloring.
+  - All diagnostic tools now have version numbers.
+  - Battery poll optimization: skips scheduled poll if device event received
+    within last 60 seconds (already implemented, verified working).
+FIX:
+  - Unifying icon SVG replaced (old ⊗ circle was unrecognizable).
+
+v0.38 (2026-03-20)
+───────────────────
+FIX:
+  - Back/Forward button defaults: config migration v4 converts existing
+    "alt_tab" mappings to "none" (pass-through) on load. New installs
+    already default to "none". This was a persistent config issue — the
+    code default was correct but existing config.json kept the old value.
+  - Action picker overlay: moved from inside the Column (invisible due to
+    negative y offset) to a sibling of the Column inside the Flickable.
+    Now floats over the mouse image at x=20, y=80 with proper z-ordering.
+    Close button (✕) dismisses the picker.
+NEW:
+  - Connection type SVG icons: Bluetooth, Bolt (lightning), Unifying (star)
+    rendered via appicons provider with theme-colored tinting.
+
+v0.37 (2026-03-20)
+───────────────────
+NEW:
+  - Action picker overlay — when clicking a button callout on the mouse page,
+    the action picker now appears as a floating overlay card on top of the mouse
+    image with a close button. All other callout labels dim to 30% opacity with
+    smooth animation. Selected callout stays highlighted at full opacity.
+  - "Saved" toast fires when an action is picked for a button.
+  - DPI presets already filtered by maxDpi (verified: 6000/8000 hidden on MX3).
+FIX:
+  - HotspotDot dimming: non-selected callouts fade when picker is open.
+
+v0.36 (2026-03-20)
+───────────────────
+NEW:
+  - Kill Logitech processes on startup (Options+, SetPoint, LogiAppBroker,
+    LogiPluginService). Stops services too. Shows popup warning advising
+    user to uninstall Logitech software for permanent fix.
+  - Apply saved haptic config (enabled + intensity) automatically when
+    device connects — no manual re-enable needed after reconnect.
+FIX:
+  - Clean exit: properly closes SHORT handle (haptic) and HID device on
+    quit. Prevents ghost handles that block the next launch.
+  - Quit from tray menu now fully releases all HID resources.
+
+v0.35 (2026-03-20)
+───────────────────
+NEW:
+  - Haptic vibration motor support (MX Master 4 ONLY)!
+    * Feature 0x19B0 at index 0x0B — uses HidD_SetOutputReport on SHORT
+      HID collection (Usage=0x0001) via ctypes, NOT hidapi.write().
+    * Bolt receivers ignore interrupt OUT for HID++ — must use USB SET_REPORT
+      control transfers. Discovered via full USB capture analysis.
+    * haptic_set_config(enabled, intensity) — enable/disable + intensity 0-100%
+    * haptic_trigger(pulse_type) — fire motor: 0x02=light, 0x04=tick, 0x08=strong
+    * Test button in Haptic Feedback card sends strong pulse
+    * Intensity presets: Subtle(25%), Low(45%), Medium(60%), High(100%)
+  - Button press sensitivity control (feature 0x19C0 at index 0x0C)
+    * Light/Medium/Hard/Firm presets via LONG report SetOutputReport
+  - Dual HID handle architecture: SHORT handle (haptic) + LONG handle (HID++ 2.0)
+    * hidapi for device finding (PyInstaller compatible)
+    * ctypes CreateFileW + HidD_SetOutputReport for sending (correct USB pipe)
+FIX:
+  - Haptic feature discovery no longer depends on IRoot probe for 0xB019 or
+    FEATURE_SET enumeration — handled via profile-driven SHORT handle opening
+
+v0.34 (2026-03-19)
+───────────────────
+ARCHITECTURE:
+  - Profile-driven feature discovery: identify device by DEVICE_NAME first,
+    look up profile, discover only known features. Eliminates speculative probes
+    and timeout failures. Guarantees haptic detection on MX4.
+  - Fast connect: parallel index probing (blast all 7 IRoot queries at once,
+    read first valid response). Expected connection time: <2s vs ~20s before.
+  - Remember last working devIdx for instant reconnect.
+  - Skip 0xFFBC interfaces (receiver management, never has device HID++).
+NEW:
+  - Haptic Feedback card (MX4 only): enable/disable toggle, intensity slider,
+    "Test Haptics" button.
+  - Scroll Direction moved inside Scroll Wheel card as dark sub-block.
+  - "Saved" toast fires on every setting change (DPI, SmartShift, HiRes,
+    haptic, scroll direction, mouse speed).
+  - Pre-load all pages at startup for instant tab switching.
+  - Single-instance check: kills existing MasterMice on startup.
+  - Logitech software warning: detects Options+/SetPoint and shows dialog.
+  - AppDetect deduplication: throttles identical FG events to max 1 per 5s.
+  - Tray icon regenerated with tighter cropping for better visibility.
+FIX:
+  - Back/Forward button defaults changed from Alt+Tab to pass-through (native).
+  - DEVICE_PROFILES enriched with battery_feature_id, smartshift_feature_id,
+    has_haptics, dpi_max, dpi_flag, smooth_scroll_on_value.
+
+v0.33 (2026-03-19)
+───────────────────
+FIX:
+  - Blank page bug on some Windows builds — removed ScrollView wrapper from ALL pages
+    (MousePage, ScrollPage, SettingsPage). Qt 6 bug: ScrollView creates its own internal
+    Flickable; some Windows builds report zero content height. Replaced with standalone
+    Flickable throughout. This was the #1 deployment issue.
+  - MX Master 4 auto-detection fallback: if haptic feature probe (0xB019) times out,
+    fall back to DEVICE_NAME string match ("Master 4"). Fixes MX4 being misdetected
+    as MX3/3S on Bolt receivers where feature discovery is slower.
+NEW:
+  - Custom app icon throughout — mouse silhouette icon used for:
+    * Window title bar (mastermice.ico, multi-resolution 16-256px)
+    * System tray notification area (white variant for dark tray backgrounds)
+    * Sidebar logo (teal-tinted via SVG color rendering)
+  - Generated mastermice.ico (teal) and mastermice_white.ico (white) from icon.png
+    at 16, 20, 24, 32, 48, 64, 128, 256px resolutions.
+
+v0.32 (2026-03-19)
+───────────────────
+NEW:
+  - Pointer Speed card restructured: DPI and Windows Cursor Speed are now
+    two sub-blocks inside a single "Pointer Speed" card (matching Scroll Wheel style).
+  - Hi-Res Scroll Speed slider: appears when Hi-Res is enabled. Controls a
+    scroll delta accumulator in the WH_MOUSE_LL hook that scales down the 15x
+    HiRes events. Range 1 (slowest) to 30 (fastest), default 15 = normal speed.
+    Fixes the "insanely fast scrolling" when Hi-Res is ON.
+  - Scroll delta accumulator in mouse_hook.py: intercepts WM_MOUSEWHEEL when
+    HiRes is active, accumulates raw deltas, and only forwards scroll events
+    when the threshold is reached (120 × multiplier / divider).
+FIX:
+  - Battery poll optimization: skips scheduled polls if a device-pushed battery
+    event was received within the last 60 seconds. Eliminates duplicate reads
+    on connect (device event fires within 1-2s). Safety-net poll remains at
+    5-minute intervals.
+  - HiRes mode state tracked in hid_gesture.py (_hires_active, _hires_multiplier)
+    and forwarded to mouse_hook for scroll scaling.
+
+v0.31 (2026-03-19)  *** RENAMED: Mouser → MasterMice ***
+───────────────────
+RENAME:
+  - Project renamed from "Mouser" to "MasterMice" across all files.
+  - Executable: MasterMice.exe (was Mouser.exe)
+  - Config dir: %AppData%\MasterMice (was %AppData%\Mouser)
+  - Log file: mastermice.log (was mouser.log)
+  - Auto-migrates existing Mouser config + logs on first run.
+FIX:
+  - DPI + Windows Pointer Speed merged into single "Pointer Speed" card.
+
+WHAT MASTERMICE ADDS OVER UPSTREAM MOUSER (github.com/TomBadash/Mouser):
+  Upstream Mouser focuses on multi-device breadth (8 mice, data-driven layouts,
+  app catalog). MasterMice focuses on deep HID++ hardware control for MX Master
+  series mice. The codebases diverged significantly — these features do NOT exist
+  in upstream Mouser:
+
+  HID++ Hardware Control:
+    - SmartShift v1 (MX3) + v2 (MX4): threshold, scrolling force, on/off toggle
+    - Hi-Res Scroll toggle with multiplier detection
+    - Haptic Feedback control (MX4): on/off + intensity slider
+    - Smooth Scrolling toggle (device-side, per-device ON values)
+    - Windows Pointer Speed (SPI_SETMOUSESPEED) + Scroll Lines control
+    - Thread-safe _queued_request() pattern for all HID++ I/O
+
+  MX Master 4 Support:
+    - Actions Ring button (CID 0x01A0) divert and capture
+    - Haptic Sense Panel control (0xB019)
+    - UNIFIED_BATTERY (0x1004) with ext_power charging detection
+    - SmartShift Enhanced (0x2111) with force parameter
+    - Auto-detection via feature fingerprinting (haptics→MX4, unified→MX3S, level→MX3)
+
+  Battery System:
+    - Dual battery feature support (0x1000 for MX3, 0x1004 for MX4)
+    - MX3 charging quirk: caches last known % (device reports 0% while charging)
+    - MX4 status 8 = "normal" (not an error)
+    - Battery icon with charging animation, color-coded by level
+
+  Connection & Compatibility:
+    - Auto-detection of mouse model via DEVICE_NAME + feature fingerprinting
+    - Connection type indicator (Unifying/Bolt/Bluetooth) from receiver PID
+    - Logitech software conflict detection on startup (Options+/SetPoint warning)
+    - Skip 0xFFBC interface (receiver management, never has device HID++)
+    - fix_receiver.ps1 tool for Code 28 driver issues
+
+  Diagnostics & Logging:
+    - Rotating log file with configurable level (disabled/errors/verbose) + max size
+    - Built-in HID++ diagnostics with progress bar
+    - Standalone debug tools: battery_test, mouse_diag_v2, smartshift_test, hid_debug
+    - Every setting change logged, every error logged
+
+  UI:
+    - 10 callout dots (MX3) / 11 callout dots (MX4) with non-crossing line algorithm
+    - Dark mode with automatic line-art inversion for mouse images
+    - Settings page with logging, diagnostics, device info, light/dark mode
+    - Device selector on first run (replaced by auto-detection)
+    - DPI presets filtered by device max (4000 for MX3, 8000 for MX4)
+
+v0.30 (2026-03-19)
+───────────────────
+NEW:
+  - Windows Pointer Speed slider (SPI_SETMOUSESPEED, range 1-20) under DPI section.
+    System-wide setting, reads current Windows value on load.
+  - Scroll Speed slider (SPI_SETWHEELSCROLLLINES, range 1-20) in Scroll Wheel section.
+    Adjusts lines per notch — helps compensate for Hi-Res scrolling speed.
+  - Connection type indicator next to battery: shows Unifying/Bolt/Bluetooth badge
+    with icon, detected from receiver PID and device index.
+  - Logitech software check on startup: warns if Options+/SetPoint/LogiAppBroker
+    processes are running that may block HID++ access. Orange dismissible banner.
+FIX:
+  - DPI preset buttons 6000/8000 now hidden when device maxDpi is 4000 (MX3).
+    Reappear when 8000-capable device (MX4) is connected.
+  - AppDetect log spam: duplicate consecutive explorer.exe foreground events
+    with same class+title are now suppressed.
+  - Store connected receiver PID for connection type detection.
+
+v0.29 (2026-03-19)
+───────────────────
+FIX:
+  - Skip 0xFFBC (receiver management) interface during device scanning — it never
+    has device HID++ and wastes time on every connection attempt.
+  - Accept 0xFF00 HID++ interfaces regardless of reported output_report_length.
+    Some Windows builds (especially after SetPoint install) report length=0 in
+    hidapi enumeration metadata, causing Mouser to skip valid interfaces.
+  - Internal diagnostics now also skip 0xFFBC, matching hid_gesture.py filtering.
+NEW:
+  - Progress bar in Settings when running diagnostics (indeterminate bar while
+    the blocking HID++ scan runs, button text changes to "Running...").
+  - Updated hid_debug.exe standalone tool: accepts 0xFF00 interfaces regardless
+    of report length, always tries vendor-specific usage pages.
+  - fix_receiver.ps1 — PowerShell script to reset Logitech Unifying receiver
+    driver state (removes ghost device entries that cause Code 28 errors).
+
+═══════════════════════════════════════════════════════════════
+
+v0.28 (2026-03-18)
+───────────────────
+FIX:
+  - SmartShift v1 (MX3) NOW WORKS — correct param format is [auto_disengage, threshold],
+    not [threshold] alone. Confirmed via standalone debug tool with Wireshark-verified
+    protocol. auto_disengage is always 10 on MX3.
+  - Thread safety: all HID++ getters/setters (SmartShift, HiRes, Haptic, Smooth Scroll)
+    now use a queued command pattern — requests execute on the listener thread only.
+    Previously, UI thread called _request() directly while the listener thread was also
+    reading from the same HID device, causing response collisions and intermittent failures.
+  - HiRes wheel SET no longer fails intermittently (same threading fix).
+NEW:
+  - tools/smartshift_test.py — standalone interactive SmartShift & HiRes debug tool
+    with raw hex logging for protocol debugging.
+
+v0.27 (2026-03-18)
+───────────────────
+FIX:
+  - SmartShift v1 (MX3) SET was broken — used func=0 (read-only) instead of func=1.
+    Root cause: refactoring changed the function number. func=0 returns current state
+    (always threshold=10), device never applied the change. Restored func=1 with
+    threshold-only param matching original working code.
+  - DPI slider capped to device max: 4000 for MX3, 8000 for MX4. Previously allowed
+    8000 on MX3 which returned HID++ error 0x02 (invalid argument).
+  - Hi-Res scrolling toggle now explains: "Sends 15x more scroll events per notch —
+    may cause fast scrolling. Reduce Windows 'Lines to scroll' setting to compensate."
+  - DPI slider max label updates dynamically based on detected device.
+
+v0.26 (2026-03-18)
+───────────────────
+FIX:
+  - Scroll Wheel controls (SmartShift, Hi-Res, Smooth Scroll, Haptic) not appearing
+    after device connects — QML Slot calls in visible: bindings are not reactive;
+    added backend.mouseConnected dependency so bindings re-evaluate on connect
+  - Slider/switch values now refresh on device connect (onMouseConnectedChanged),
+    not just on Component.onCompleted
+
+v0.25 (2026-03-18)
+───────────────────
+NEW:
+  - Automatic mouse model detection — no more manual selection on first run
+    Feature fingerprinting: haptics(0xB019)→MX4, unified battery(0x1004)→MX3S,
+    level battery(0x1000)→MX3. Falls back to manual selector if no device found.
+  - Device name query (HID++ DEVICE_NAME 0x0005) — logged on connect
+  - Feature summary logged on connect (e.g. "REPROG_V4, DPI, BATT(unified), ...")
+  - SmartShift v2 support (MX4): threshold + scrolling force + on/off toggle
+  - SmartShift v1 support (MX3): threshold + on/off with correct func=0 protocol
+  - Haptic feedback control (MX4 only): enable/disable + intensity slider 0-100%
+  - Smooth scrolling toggle (via 0x2121 scroll control feature)
+  - Scrolling force slider (MX4 SmartShift v2, 1-100%)
+  - Actions Ring (CID 0x01A0) divert + press/release capture on MX4
+  - HiRes wheel capability check: multiplier=0 hides toggle (MX4 MagSpeed native)
+  - All settings changes now logged (DPI, scroll inversion, model, debug, log level)
+  - Critical errors now use stderr (visible in "errors" log mode)
+FIX:
+  - MX3 battery: level=0% while charging — now caches last known level
+  - MX4 battery: charging detection uses ext_power (status stays at 8)
+  - Battery status code 8 recognized as "normal" (MX4-specific, not an error)
+  - HiRes fallback: MX3's 0x2121 correctly restored as HiRes after 0x2250 disabled
+  - Diagnostics: pause/resume HID++ listener so diagnostics can open device cleanly
+  - First-run overlay: shows "Detecting..." spinner when device connected,
+    manual selector only shown when no device present
+
+v0.22 (2026-03-17)
+───────────────────
+NEW:
+  - SmartShift threshold control (1-50) on Point & Scroll page
+  - Hi-Res Scrolling toggle on Point & Scroll page
+  - HID++ feature discovery for SMART_SHIFT (0x2110) and HIRES_WHEEL (0x2121)
+  - Battery broadcast event listener — real-time charging detection
+  - "Clear Log" button in Settings
+  - Diagnostics now append results + full log in viewer
+FIX:
+  - Battery showing 0% when charging — now re-reads actual level after event
+  - Battery shows "Chg" only when real percentage is unavailable
+  - Log viewer blank on second diagnostics run
+
+v0.21 (2026-03-17)
+───────────────────
+NEW:
+  - Built-in HID++ diagnostic tool in Settings (Run Diagnostics button)
+  - Full feature enumeration: probes 10 known features and shows results
+  - App version logged at startup: "[Mouser] Version X.XX"
+  - Version badge on Settings page header
+FIX:
+  - Battery crash: HidGestureListener now supports BATTERY_LEVEL_STATUS (0x1000)
+    in addition to UNIFIED_BATTERY (0x1004) — MX Master 3/3S uses 0x1000
+  - Battery event wiring: engine → backend → UI now fully connected
+  - DPI slider sends value on release (onPressedChanged) not just debounce
+
+v0.2 (2026-03-17)
+──────────────────
+NEW:
+  - Battery indicator (Windows-style icon + percentage) next to Connected badge
+  - Charging detection via UNIFIED_BATTERY (0x1004) get_status
+  - APP_VERSION constant in config.py, displayed in title bar and Settings
+  - Window title shows "Mouser vX.X — MX Master 3/3S"
+FIX:
+  - read_battery() implemented in HidGestureListener
+  - Engine battery poll guarded with hasattr + try/except
+
+v0.1 (2026-03-17)
+──────────────────
+NEW: Multi-device support (MX Master 3/3S + MX Master 4)
+  - DEVICE_PROFILES in config.py with per-device button lists (10/11 buttons)
+  - Device selection overlay on first run
+  - Settings page with mouse type selector, appearance mode, logging controls
+  - Gear icon + Settings page in sidebar
+  - DeviceModels.js with hotspot coordinates extracted from red-dot reference images
+  - Non-crossing callout line ordering (computed via greedy swap algorithm)
+  - Fraction-based evenly-spaced label positioning
+  - MouseImageProvider: enforces alpha transparency, inverts lines for dark mode
+  - Light/Dark/System appearance mode toggle
+  - File logging system (core/logger.py) with rotating file, configurable max size
+  - Log viewer in Settings with Refresh, Open in Explorer buttons
+  - Standalone battery_test.py diagnostic tool
+BUTTONS (expanded from original 6/7):
+  - MX Master 3/3S: left_click, right_click, scroll_up, scroll_down, middle,
+    mode_shift (Spin Mode), xbutton2, xbutton1, gesture, thumb_wheel
+  - MX Master 4: same + haptic_panel (Haptic Sense Panel)
+FIX:
+  - debugMode AttributeError crash (added property + slot to Backend)
+  - MousePage.qml Theme.xxx → Theme.palette() (was using undefined properties)
+  - Null guards for backend references in QML bindings
+  - UNC path bug for mouse images (file:/// + //server = 5 slashes)
+  - HotspotDot required property removed (restored modelData in Repeater)
+  - ScrollView Material background causing transparent title bar
+  - HidGestureListener on_move parameter removed (didn't exist)
+  - PyInstaller spec: QtSvg removed from excludes, added to hiddenimports + DLL whitelist
+
+═══════════════════════════════════════════════════════════════
+
+Upstream changes not yet integrated (as of 2026-03-17):
+  - core/logi_devices.py — Device catalog with 8 Logitech mice specs
+  - core/device_layouts.py — Layout registry decoupled from QML
+  - tests/ directory — 5 test files for backend, config, layouts, hid_gesture
+  - macOS iokit default backend
+  - Composite mapping UI refresh fix
+  - Config version 4 migration with per-device layout overrides

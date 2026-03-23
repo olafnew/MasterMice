@@ -37,6 +37,7 @@ class MouseEvent:
     GESTURE_SWIPE_DOWN = "gesture_swipe_down"
     HSCROLL_LEFT = "hscroll_left"
     HSCROLL_RIGHT = "hscroll_right"
+    HAPTIC_PANEL_CLICK = "haptic_panel_click"  # MX Master 4 Actions Ring
 
     def __init__(self, event_type, raw_data=None):
         self.event_type = event_type
@@ -238,6 +239,11 @@ if sys.platform == "win32":
             self.invert_hscroll = False
             self._pending_vscroll = 0
             self._pending_hscroll = 0
+            # HiRes scroll accumulator
+            self.hires_active = False       # set by engine when HiRes toggled
+            self.hires_multiplier = 1       # multiplier from device (e.g. 15)
+            self.hires_divider = 15         # user-configurable divider
+            self._hires_scroll_accum = 0    # accumulated delta for HiRes scaling
             self._vscroll_posted = False
             self._hscroll_posted = False
             self._ri_wndproc_ref = None
@@ -249,6 +255,8 @@ if sys.platform == "win32":
             self._last_rehook_time = 0
             self._device_connected = False
             self._connection_change_cb = None
+            self._battery_event_cb = None
+            self._device_detected_cb = None
             self._gesture_direction_enabled = False
             self._gesture_threshold = 50.0
             self._gesture_deadzone = 40.0
@@ -500,8 +508,33 @@ if sys.platform == "win32":
                     should_block = MouseEvent.MIDDLE_UP in self._blocked_events
 
                 elif wParam == WM_MOUSEWHEEL:
+                    delta = hiword(mouse_data)
+                    # HiRes scroll scaling: accumulate and re-emit at reduced rate
+                    if self.hires_active and self.hires_multiplier > 1 and delta != 0:
+                        # Reset accumulator on direction change to prevent
+                        # "wrong direction" scrolling when reversing
+                        if (self._hires_scroll_accum > 0 and delta < 0) or \
+                           (self._hires_scroll_accum < 0 and delta > 0):
+                            self._hires_scroll_accum = 0
+                        self._hires_scroll_accum += delta
+                        # Threshold: how much raw delta per forwarded scroll event
+                        # divider=multiplier → normal speed; divider<multiplier → faster
+                        threshold = max(1, int(120 * self.hires_multiplier / max(1, self.hires_divider)))
+                        if abs(self._hires_scroll_accum) >= threshold:
+                            # Forward accumulated scroll as standard events
+                            sign = 1 if self._hires_scroll_accum > 0 else -1
+                            forward_delta = sign * 120
+                            if self.invert_vscroll:
+                                forward_delta = -forward_delta
+                            self._pending_vscroll += forward_delta
+                            if not self._vscroll_posted and self._ri_hwnd:
+                                self._vscroll_posted = True
+                                PostMessageW(self._ri_hwnd,
+                                             WM_APP_INJECT_VSCROLL, 0, 0)
+                            self._hires_scroll_accum -= sign * threshold
+                        return 1  # always suppress raw HiRes events
+
                     if self.invert_vscroll:
-                        delta = hiword(mouse_data)
                         if delta != 0:
                             self._pending_vscroll += (-delta)
                             if not self._vscroll_posted and self._ri_hwnd:
@@ -628,7 +661,7 @@ if sys.platform == "win32":
 
         def _setup_raw_input(self):
             hInst = GetModuleHandleW(None)
-            cls_name = f"MouserRawInput_{id(self)}"
+            cls_name = f"MasterMiceRawInput_{id(self)}"
             self._ri_wndproc_ref = WNDPROC_TYPE(self._ri_wndproc)
 
             wc = WNDCLASSEXW()
@@ -639,7 +672,7 @@ if sys.platform == "win32":
             RegisterClassExW(byref(wc))
 
             self._ri_hwnd = CreateWindowExW(
-                0, cls_name, "Mouser RI", 0,
+                0, cls_name, "MasterMice RI", 0,
                 0, 0, 1, 1,
                 None, None, hInst, None,
             )
@@ -758,11 +791,40 @@ if sys.platform == "win32":
             )
             self._accumulate_gesture_delta(delta_x, delta_y, "hid_rawxy")
 
+        def _on_hid_actions_ring_down(self):
+            self._emit_debug("HID actions ring down")
+
+        def _on_hid_actions_ring_up(self):
+            self._emit_debug("HID actions ring up")
+            self._dispatch(MouseEvent(MouseEvent.HAPTIC_PANEL_CLICK))
+
         def _on_hid_connect(self):
             self._set_device_connected(True)
 
         def _on_hid_disconnect(self):
             self._set_device_connected(False)
+
+        def _on_hid_battery(self, result):
+            """Battery event pushed by device — forward to engine."""
+            if self._battery_event_cb:
+                try:
+                    self._battery_event_cb(result)
+                except Exception:
+                    pass
+
+        def _on_hid_device_detected(self, model_key, device_name):
+            """Device model auto-detected — forward to engine."""
+            if self._device_detected_cb:
+                try:
+                    self._device_detected_cb(model_key, device_name)
+                except Exception:
+                    pass
+
+        def set_battery_event_callback(self, cb):
+            self._battery_event_cb = cb
+
+        def set_device_detected_callback(self, cb):
+            self._device_detected_cb = cb
 
         def start(self):
             if self._hook_thread and self._hook_thread.is_alive():
@@ -771,9 +833,12 @@ if sys.platform == "win32":
                 self._hid_gesture = HidGestureListener(
                     on_down=self._on_hid_gesture_down,
                     on_up=self._on_hid_gesture_up,
-                    on_move=self._on_hid_gesture_move,
                     on_connect=self._on_hid_connect,
                     on_disconnect=self._on_hid_disconnect,
+                    on_battery=self._on_hid_battery,
+                    on_actions_ring_down=self._on_hid_actions_ring_down,
+                    on_actions_ring_up=self._on_hid_actions_ring_up,
+                    on_device_detected=self._on_hid_device_detected,
                 )
                 self._hid_gesture.start()
             self._hook_thread = threading.Thread(target=self._run_hook, daemon=True)
@@ -837,6 +902,8 @@ elif sys.platform == "darwin":
             self._first_event_logged = False
             self._device_connected = False
             self._connection_change_cb = None
+            self._battery_event_cb = None
+            self._device_detected_cb = None
             self._gesture_direction_enabled = False
             self._gesture_threshold = 50.0
             self._gesture_deadzone = 40.0
@@ -877,6 +944,12 @@ elif sys.platform == "darwin":
         def set_connection_change_callback(self, cb):
             self._connection_change_cb = cb
 
+        def set_battery_event_callback(self, cb):
+            self._battery_event_cb = cb
+
+        def set_device_detected_callback(self, cb):
+            self._device_detected_cb = cb
+
         @property
         def device_connected(self):
             return self._device_connected
@@ -890,6 +963,20 @@ elif sys.platform == "darwin":
             if self._connection_change_cb:
                 try:
                     self._connection_change_cb(connected)
+                except Exception:
+                    pass
+
+        def _on_hid_battery(self, result):
+            if self._battery_event_cb:
+                try:
+                    self._battery_event_cb(result)
+                except Exception:
+                    pass
+
+        def _on_hid_device_detected(self, model_key, device_name):
+            if self._device_detected_cb:
+                try:
+                    self._device_detected_cb(model_key, device_name)
                 except Exception:
                     pass
 
@@ -1242,6 +1329,13 @@ elif sys.platform == "darwin":
             )
             self._accumulate_gesture_delta(delta_x, delta_y, "hid_rawxy")
 
+        def _on_hid_actions_ring_down(self):
+            self._emit_debug("HID actions ring down")
+
+        def _on_hid_actions_ring_up(self):
+            self._emit_debug("HID actions ring up")
+            self._dispatch(MouseEvent(MouseEvent.HAPTIC_PANEL_CLICK))
+
         def _on_hid_connect(self):
             self._set_device_connected(True)
 
@@ -1261,6 +1355,10 @@ elif sys.platform == "darwin":
                     on_move=self._on_hid_gesture_move,
                     on_connect=self._on_hid_connect,
                     on_disconnect=self._on_hid_disconnect,
+                    on_battery=self._on_hid_battery,
+                    on_actions_ring_down=self._on_hid_actions_ring_down,
+                    on_actions_ring_up=self._on_hid_actions_ring_up,
+                    on_device_detected=self._on_hid_device_detected,
                 )
                 self._hid_gesture.start()
 
@@ -1351,6 +1449,8 @@ else:
                                deadzone=40, timeout_ms=3000, cooldown_ms=500): pass
         def set_debug_callback(self, callback): pass
         def set_connection_change_callback(self, cb): pass
+        def set_battery_event_callback(self, cb): pass
+        def set_device_detected_callback(self, cb): pass
         @property
         def device_connected(self): return False
         def start(self): pass

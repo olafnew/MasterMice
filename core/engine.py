@@ -31,10 +31,15 @@ class Engine:
         self._profile_change_cb = None       # UI callback
         self._connection_change_cb = None   # UI callback for device status
         self._battery_read_cb = None        # UI callback for battery level
+        self._device_detected_cb = None     # UI callback for auto-detected model
         self._battery_poll_stop = threading.Event()
         self._lock = threading.Lock()
         self._setup_hooks()
         self.hook.set_connection_change_callback(self._on_connection_change)
+        if hasattr(self.hook, "set_battery_event_callback"):
+            self.hook.set_battery_event_callback(self._on_battery_event)
+        if hasattr(self.hook, "set_device_detected_callback"):
+            self.hook.set_device_detected_callback(self._on_device_detected)
         # Apply persisted DPI setting
         dpi = self.cfg.get("settings", {}).get("dpi", 1000)
         try:
@@ -126,31 +131,94 @@ class Engine:
             threading.Thread(
                 target=self._battery_poll_loop, daemon=True, name="BatteryPoll"
             ).start()
+            # Apply saved haptic settings on connect
+            self._apply_haptic_on_connect()
+
+    def _apply_haptic_on_connect(self):
+        """Apply saved haptic config when device connects."""
+        try:
+            from core.config import load_config
+            cfg = load_config()
+            hg = self.hook._hid_gesture
+            if hg and hg._short_handle:
+                enabled = cfg.get("settings", {}).get("haptic_enabled", True)
+                intensity = cfg.get("settings", {}).get("haptic_intensity", 60)
+                hg.haptic_set_config(enabled, intensity)
+                print(f"[Engine] Applied haptic config: "
+                      f"{'ON' if enabled else 'OFF'} intensity={intensity}%")
+        except Exception as e:
+            print(f"[Engine] Haptic config apply failed: {e}")
 
     def _battery_poll_loop(self):
-        """Read battery on connect then every 5 minutes while connected."""
+        """Read battery every 5 minutes as a safety net.
+        Skips the poll if a battery event was received recently (within 60s),
+        since the device pushes events on status changes automatically."""
         import time
-        time.sleep(1)   # brief settle after connect
+        print("[Engine] Battery poll started")
+        time.sleep(2)   # brief settle after connect — let device event fire first
         stop = self._battery_poll_stop
         while not stop.is_set():
-            hg = self.hook._hid_gesture
-            if hg:
-                level = hg.read_battery()
-                if level is not None and self._battery_read_cb:
+            # Skip poll if a battery event was received within the last 60s
+            last = getattr(self, '_last_battery_event_time', 0)
+            if time.time() - last < 60:
+                pass  # device event already provided fresh data
+            else:
+                hg = self.hook._hid_gesture
+                if hg and hasattr(hg, "read_battery"):
                     try:
-                        self._battery_read_cb(level)
-                    except Exception:
-                        pass
-            if stop.wait(300):   # 5 minutes between polls; exits immediately if stopped
+                        result = hg.read_battery()
+                    except Exception as e:
+                        print(f"[Engine] Battery read exception: {e}")
+                        result = None
+                    print(f"[Engine] Battery result: {result}")
+                    if result is not None and self._battery_read_cb:
+                        try:
+                            self._battery_read_cb(result)
+                        except Exception:
+                            pass
+                else:
+                    print("[Engine] Battery poll skipped — no HID++ or no read_battery")
+            if stop.wait(300):   # 5 minutes between polls
                 break
+        print("[Engine] Battery poll stopped")
 
     def set_battery_callback(self, cb):
-        """Register ``cb(level: int)`` invoked when battery level is read (0-100)."""
+        """Register ``cb(result: dict)`` invoked when battery is read or event fires."""
         self._battery_read_cb = cb
+
+    def _on_battery_event(self, result):
+        """Called from HID++ thread when device pushes a battery status change."""
+        import time
+        self._last_battery_event_time = time.time()
+        print(f"[Engine] Battery event received: {result}")
+        if self._battery_read_cb and result:
+            try:
+                self._battery_read_cb(result)
+            except Exception:
+                pass
 
     def set_connection_change_callback(self, cb):
         """Register ``cb(connected: bool)`` invoked on device connect/disconnect."""
         self._connection_change_cb = cb
+
+    def _on_device_detected(self, model_key, device_name):
+        """Called from HID++ thread when device model is auto-detected."""
+        print(f"[Engine] Device detected: {model_key} ({device_name})")
+        # Auto-set mouse_model in config
+        current = self.cfg.get("settings", {}).get("mouse_model", "")
+        if current != model_key:
+            self.cfg.setdefault("settings", {})["mouse_model"] = model_key
+            save_config(self.cfg)
+            print(f"[Engine] Mouse model auto-set: {current!r} → {model_key!r}")
+        if self._device_detected_cb:
+            try:
+                self._device_detected_cb(model_key, device_name)
+            except Exception:
+                pass
+
+    def set_device_detected_callback(self, cb):
+        """Register ``cb(model_key, device_name)`` invoked on auto-detection."""
+        self._device_detected_cb = cb
 
     @property
     def device_connected(self):
@@ -183,6 +251,16 @@ class Engine:
 
     def set_enabled(self, enabled):
         self._enabled = enabled
+
+    def update_hires_scroll_state(self, active, multiplier=None, divider=None):
+        """Update the mouse hook's HiRes scroll scaling parameters."""
+        self.hook.hires_active = bool(active)
+        if multiplier is not None:
+            self.hook.hires_multiplier = int(multiplier)
+        if divider is not None:
+            self.hook.hires_divider = max(1, int(divider))
+        print(f"[Engine] HiRes scroll: active={active} "
+              f"mult={self.hook.hires_multiplier} div={self.hook.hires_divider}")
 
     def start(self):
         self.hook.start()

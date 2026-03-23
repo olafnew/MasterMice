@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for Mouser
-Produces a single-directory portable build in  dist/Mouser/
-Run:  pyinstaller Mouser.spec
+PyInstaller spec file for MasterMice
+Produces a single-directory portable build in  dist/MasterMice {version}/
+Run:  pyinstaller MasterMice.spec
 """
 
 import os
@@ -34,6 +34,7 @@ a = Analysis(
         "PySide6.QtQml",
         "PySide6.QtNetwork",
         "PySide6.QtOpenGL",
+        "PySide6.QtSvg",
     ],
     hookspath=[],
     hooksconfig={},
@@ -68,7 +69,6 @@ a = Analysis(
         "PySide6.QtRemoteObjects",
         "PySide6.QtScxml",
         "PySide6.QtSql",
-        "PySide6.QtSvg",
         "PySide6.QtSvgWidgets",
         "PySide6.QtTextToSpeech",
         "PySide6.QtQuick3D",
@@ -108,12 +108,9 @@ a = Analysis(
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 # ── Filter out massive Qt DLLs and data we don't need ──────────────────
-# The PySide6 hooks copy EVERYTHING (WebEngine=193MB, 3D, Charts, etc.).
-# We only need: Core, Gui, Widgets, Qml, Quick, QuickControls2 (Material),
-# OpenGL, Network, ShaderTools, and a few essentials.
 _qt_keep = {
     # Core Qt
-    "Qt6Core", "Qt6Gui", "Qt6Widgets", "Qt6Network", "Qt6OpenGL",
+    "Qt6Core", "Qt6Gui", "Qt6Widgets", "Qt6Network", "Qt6OpenGL", "Qt6Svg",
     # QML / Quick
     "Qt6Qml", "Qt6QmlCore", "Qt6QmlMeta", "Qt6QmlModels",
     "Qt6QmlNetwork", "Qt6QmlWorkerScript",
@@ -132,30 +129,22 @@ _qt_keep = {
 }
 
 def _should_keep(name):
-    """Return True if this binary/data entry should be kept."""
-    # Always keep non-PySide6 files
     if "PySide6" not in name and "pyside6" not in name.lower():
         return True
-    # Check the filename (last component)
     base = os.path.basename(name)
     stem = os.path.splitext(base)[0]
-    # Keep if it's in our whitelist
     if stem in _qt_keep:
         return True
-    # Keep all .pyd files (Python extensions — small and needed)
     if base.endswith(".pyd"):
         return True
-    # Keep plugin dirs we need (platforms, imageformats, styles, iconengines)
     for keep in ("platforms", "imageformats", "styles", "iconengines",
                  "platforminputcontexts"):
         if keep in name:
             return True
-    # Keep QML dirs we need
     for keep_qml in ("QtCore", "QtQml", "QtQuick", "QtNetwork"):
         pat = os.path.join("qml", keep_qml)
         if pat in name.replace("/", os.sep):
             return True
-    # Drop everything else (WebEngine, 3D, Charts, Multimedia, etc.)
     return False
 
 a.binaries = [b for b in a.binaries if _should_keep(b[0])]
@@ -164,16 +153,16 @@ a.datas    = [d for d in a.datas    if _should_keep(d[0])]
 exe = EXE(
     pyz,
     a.scripts,
-    [],                     # not one-file (faster startup, easier debugging)
+    [],
     exclude_binaries=True,
-    name="Mouser",
+    name="MasterMice",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,              # UPX OFF — decompression at startup is very slow
-    console=False,          # windowed app (no terminal)
-    icon=os.path.join(ROOT, "images", "logo.ico"),
-    uac_admin=False,        # does NOT require admin
+    upx=False,
+    console=True,   # TEMPORARY: show QML errors for debugging
+    icon=os.path.join(ROOT, "images", "mastermice.ico"),
+    uac_admin=False,
 )
 
 coll = COLLECT(
@@ -182,32 +171,18 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=False,              # UPX OFF — faster cold start
+    upx=False,
     upx_exclude=[],
-    name="Mouser",
+    name="MasterMice 0.392",
 )
 
-# ── Post-build cleanup: remove Qt QML/plugin dirs we don't need ──────────
-# PyInstaller's hooks copy the entire PySide6 QML tree; we only need
-# QtQuick/Controls + Material, QtQml, QtQuick/Layouts, QtQuick/Templates,
-# QtQuick/Window.  Everything else is dead weight that slows startup.
-_dist = os.path.join("dist", "Mouser", "_internal", "PySide6")
+# ── Post-build cleanup ──────────────────────────────────────────────────
+_dist = os.path.join("dist", "MasterMice 0.32", "_internal", "PySide6")
 
-# QML dirs to KEEP (everything else under qml/ is deleted)
-_keep_qml = {
-    "QtCore", "QtQml", "QtQuick", "QtNetwork",
-}
-
-# Under QtQuick, keep only what the app uses
-_keep_qtquick = {
-    "Controls", "Layouts", "Templates", "Window",
-}
-
-# Plugin dirs to KEEP
-_keep_plugins = {
-    "iconengines", "imageformats", "platforms",
-    "platforminputcontexts", "styles",
-}
+_keep_qml = {"QtCore", "QtQml", "QtQuick", "QtNetwork"}
+_keep_qtquick = {"Controls", "Layouts", "Templates", "Window"}
+_keep_plugins = {"iconengines", "imageformats", "platforms",
+                 "platforminputcontexts", "styles"}
 
 def _cleanup():
     qml_root = os.path.join(_dist, "qml")
@@ -218,8 +193,6 @@ def _cleanup():
                 if os.path.isdir(p):
                     shutil.rmtree(p, ignore_errors=True)
                     print(f"  [cleanup] removed qml/{d}")
-
-        # Trim inside QtQuick
         qtquick = os.path.join(qml_root, "QtQuick")
         if os.path.isdir(qtquick):
             for d in os.listdir(qtquick):
@@ -228,7 +201,6 @@ def _cleanup():
                     if os.path.isdir(p):
                         shutil.rmtree(p, ignore_errors=True)
                         print(f"  [cleanup] removed qml/QtQuick/{d}")
-
     plugins_root = os.path.join(_dist, "plugins")
     if os.path.isdir(plugins_root):
         for d in os.listdir(plugins_root):
@@ -237,13 +209,11 @@ def _cleanup():
                 if os.path.isdir(p):
                     shutil.rmtree(p, ignore_errors=True)
                     print(f"  [cleanup] removed plugins/{d}")
-
-    # Remove translations (not needed)
     trans = os.path.join(_dist, "translations")
     if os.path.isdir(trans):
         shutil.rmtree(trans, ignore_errors=True)
         print("  [cleanup] removed translations/")
 
-print("[Mouser] Post-build cleanup...")
+print("[MasterMice] Post-build cleanup...")
 _cleanup()
-print("[Mouser] Cleanup done.")
+print("[MasterMice] Cleanup done.")

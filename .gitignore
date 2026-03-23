@@ -28,3 +28,10 @@ build_icon.py
 
 # Shortcuts (user-specific paths)
 *.lnk
+
+# Backup / one-time scripts
+_backup_pre_cleanup/
+rename_to_mastermice.bat
+
+# Claude Code local config
+.claude/

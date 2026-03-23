@@ -3,25 +3,114 @@ Configuration manager — loads/saves button mappings to a JSON file.
 Supports per-application profiles (for future use).
 """
 
+APP_VERSION = "0.392"
+APP_NAME = "MasterMice"
+
 import json
 import os
 import sys
+import shutil
 
-CONFIG_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Mouser")
+CONFIG_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "MasterMice")
 if sys.platform == "darwin":
-    CONFIG_DIR = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "Mouser")
+    CONFIG_DIR = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "MasterMice")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 
+# ── Migrate from old "Mouser" config path if it exists ──────────────
+_OLD_CONFIG_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Mouser")
+if sys.platform == "darwin":
+    _OLD_CONFIG_DIR = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "Mouser")
+_OLD_CONFIG_FILE = os.path.join(_OLD_CONFIG_DIR, "config.json")
+
+if os.path.exists(_OLD_CONFIG_FILE) and not os.path.exists(CONFIG_FILE):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    shutil.copy2(_OLD_CONFIG_FILE, CONFIG_FILE)
+    # Also copy log file if it exists
+    _old_log = os.path.join(_OLD_CONFIG_DIR, "mouser.log")
+    _new_log = os.path.join(CONFIG_DIR, "mastermice.log")
+    if os.path.exists(_old_log) and not os.path.exists(_new_log):
+        shutil.copy2(_old_log, _new_log)
+    print(f"[MasterMice] Migrated config from {_OLD_CONFIG_DIR}")
+
 # Which mouse events map to which friendly button names
-# Order matches the Logi Options+ diagram (top view then side view)
+# Order matches the physical layout (top → side → thumb)
 BUTTON_NAMES = {
-    "middle":        "Middle button",
-    "gesture":       "Gesture button",
-    "xbutton1":      "Back button",
-    "xbutton2":      "Forward button",
-    "hscroll_left":  "Horizontal scroll left",
-    "hscroll_right": "Horizontal scroll right",
+    "left_click":    "Left Click",
+    "right_click":   "Right Click",
+    "scroll_up":     "Scroll Up",
+    "scroll_down":   "Scroll Down",
+    "middle":        "Middle Button",
+    "mode_shift":    "Spin Mode",
+    "xbutton2":      "Forward Button",
+    "xbutton1":      "Back Button",
+    "gesture":       "Gesture Button",
+    "thumb_wheel":   "Thumb Wheel",
+    "haptic_panel":  "Haptic Sense Panel",
 }
+
+# Per-device profiles — each device lists its display name and which
+# buttons from BUTTON_NAMES are physically present on that mouse.
+DEVICE_PROFILES = {
+    "mx_master_3s": {
+        "name": "MX Master 3/3S",
+        "name_matches": ["master 3"],   # substring match on DEVICE_NAME (lowercase)
+        "buttons": [
+            "left_click", "right_click",
+            "scroll_up", "scroll_down", "middle", "mode_shift",
+            "xbutton2", "xbutton1", "gesture", "thumb_wheel",
+        ],
+        # HID++ feature IDs for profile-driven discovery
+        "battery_feature_id": 0x1000,
+        "battery_soc_while_charging": False,   # reports 0% while charging
+        "smartshift_feature_id": 0x2110,
+        "smartshift_version": 1,
+        "smartshift_has_force": False,
+        "has_haptics": False,
+        "haptic_feature_id": None,
+        "dpi_max": 4000,
+        "dpi_flag": 0x00,
+        "smooth_scroll_on_value": 0x03,
+    },
+    "mx_master_4": {
+        "name": "MX Master 4",
+        "name_matches": ["master 4"],
+        "buttons": [
+            "left_click", "right_click",
+            "scroll_up", "scroll_down", "middle", "mode_shift",
+            "xbutton2", "xbutton1", "gesture", "thumb_wheel",
+            "haptic_panel",
+        ],
+        "battery_feature_id": 0x1004,
+        "battery_soc_while_charging": True,
+        "smartshift_feature_id": 0x2111,
+        "smartshift_version": 2,
+        "smartshift_has_force": True,
+        "has_haptics": True,
+        "haptic_feature_id": 0xB019,
+        "dpi_max": 8000,
+        "dpi_flag": 0x01,
+        "smooth_scroll_on_value": 0x01,
+    },
+}
+
+
+def get_device_buttons(cfg):
+    """Return the button keys list for the currently selected device model."""
+    model = cfg.get("settings", {}).get("mouse_model", "")
+    profile = DEVICE_PROFILES.get(model)
+    if profile:
+        return profile["buttons"]
+    # Fallback: 3/3S button set
+    return ["left_click", "right_click", "scroll_up", "scroll_down",
+            "middle", "mode_shift", "xbutton2", "xbutton1",
+            "gesture", "thumb_wheel"]
+
+
+def get_device_name(cfg):
+    """Return the display name for the currently selected device model."""
+    model = cfg.get("settings", {}).get("mouse_model", "")
+    profile = DEVICE_PROFILES.get(model)
+    return profile["name"] if profile else ""
 
 GESTURE_DIRECTION_BUTTONS = (
     "gesture_left",
@@ -40,7 +129,12 @@ PROFILE_BUTTON_NAMES = {
 
 # Maps config button keys to the MouseEvent types they correspond to
 BUTTON_TO_EVENTS = {
+    "left_click":    ("left_down", "left_up"),
+    "right_click":   ("right_down", "right_up"),
+    "scroll_up":     ("scroll_up",),
+    "scroll_down":   ("scroll_down",),
     "middle":        ("middle_down", "middle_up"),
+    "mode_shift":    ("mode_shift_click",),
     "gesture":       ("gesture_click",),
     "gesture_left":  ("gesture_swipe_left",),
     "gesture_right": ("gesture_swipe_right",),
@@ -48,28 +142,33 @@ BUTTON_TO_EVENTS = {
     "gesture_down":  ("gesture_swipe_down",),
     "xbutton1":      ("xbutton1_down", "xbutton1_up"),
     "xbutton2":      ("xbutton2_down", "xbutton2_up"),
-    "hscroll_left":  ("hscroll_left",),
-    "hscroll_right": ("hscroll_right",),
+    "thumb_wheel":   ("hscroll_left", "hscroll_right"),
+    "haptic_panel":  ("haptic_panel_click",),
 }
 
 DEFAULT_CONFIG = {
-    "version": 3,
+    "version": 4,
     "active_profile": "default",
     "profiles": {
         "default": {
             "label": "Default (All Apps)",
             "apps": [],          # empty = all apps (fallback profile)
             "mappings": {
+                "left_click": "none",
+                "right_click": "none",
+                "scroll_up": "none",
+                "scroll_down": "none",
                 "middle": "none",
+                "mode_shift": "none",
                 "gesture": "none",
                 "gesture_left": "none",
                 "gesture_right": "none",
                 "gesture_up": "none",
                 "gesture_down": "none",
-                "xbutton1": "alt_tab",
-                "xbutton2": "alt_tab",
-                "hscroll_left": "browser_back",
-                "hscroll_right": "browser_forward",
+                "xbutton1": "none",
+                "xbutton2": "none",
+                "thumb_wheel": "none",
+                "haptic_panel": "none",
             },
         }
     },
@@ -85,6 +184,9 @@ DEFAULT_CONFIG = {
         "gesture_timeout_ms": 3000,
         "gesture_cooldown_ms": 500,
         "debug_mode": False,
+        "mouse_model": "",
+        "log_level": "errors",
+        "log_max_kb": 1024,
     },
 }
 
@@ -228,6 +330,16 @@ def _migrate(cfg):
             for key in GESTURE_DIRECTION_BUTTONS:
                 mappings.setdefault(key, "none")
         cfg["version"] = 3
+
+    if version < 4:
+        # v3 → v4: fix xbutton1/xbutton2 defaults from alt_tab to none
+        for pdata in cfg.get("profiles", {}).values():
+            mappings = pdata.get("mappings", {})
+            if mappings.get("xbutton1") == "alt_tab":
+                mappings["xbutton1"] = "none"
+            if mappings.get("xbutton2") == "alt_tab":
+                mappings["xbutton2"] = "none"
+        cfg["version"] = 4
 
     cfg.setdefault("settings", {})
     cfg["settings"].setdefault("debug_mode", False)

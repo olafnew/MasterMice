@@ -5,50 +5,58 @@ import "Theme.js" as Theme
     Position is given as normalised coordinates (0-1) within the
     source image, so it adapts when the image is scaled.
 
-    An annotation label with a connecting line is drawn from the
-    dot to an offset position.                                    */
+    Label is positioned via targetLabelFraction (0-1 of container
+    height) for evenly-spaced right-aligned callouts.              */
 
 Item {
     id: hotspot
+    opacity: isDimmed ? 0.3 : 1.0
+    Behavior on opacity { NumberAnimation { duration: 200 } }
     readonly property var theme: Theme.palette(uiState.darkMode)
 
-    // ── Required properties ───────────────────────────────────
-    required property Item imgItem        // the Image element
-    required property real normX          // 0-1 x in source image
-    required property real normY          // 0-1 y in source image
-    required property string buttonKey    // config key (e.g. "middle")
-    property bool isHScroll: false        // true for horizontal scroll dot
+    // ── Properties ───────────────────────────────────────────
+    property Item imgItem                 // the Image element
+    property real normX: 0               // 0-1 x in source image
+    property real normY: 0               // 0-1 y in source image
+    property string buttonKey: ""        // config key (e.g. "middle")
+    property bool isHScroll: false
 
     property string label: ""
     property string sublabel: ""
-    property string labelSide: "right"    // "left" or "right"
-    property real labelOffX: 120          // x offset for annotation
-    property real labelOffY: -30          // y offset for annotation
+    property string labelSide: "right"
+    property real labelOffX: 120
+    property real labelOffY: -30
+
+    // Fraction-based label Y (0-1 of container height for label center).
+    // When >= 0, overrides labelOffX/labelOffY and right-aligns the label.
+    property real targetLabelFraction: -1
 
     // ── Computed centre ───────────────────────────────────────
-    property real cx: imgItem.x + imgItem.offX + normX * imgItem.paintedWidth
-    property real cy: imgItem.y + imgItem.offY + normY * imgItem.paintedHeight
+    property real cx: imgItem ? imgItem.x + imgItem.offX + normX * imgItem.paintedWidth : 0
+    property real cy: imgItem ? imgItem.y + imgItem.offY + normY * imgItem.paintedHeight : 0
 
     property bool isSelected: mousePage.selectedButton === buttonKey
+    property bool isDimmed: mousePage.selectedButton !== "" && !isSelected
     property bool isHovered: dotMa.containsMouse
-    property real labelWidth: labelCol.implicitWidth + 20
-    property real labelHeight: labelCol.implicitHeight + 14
-    property real leftCandidateX: cx + labelOffX - labelWidth - 14
-    property real rightCandidateX: cx + labelOffX + 6
-    property bool leftFits: leftCandidateX >= 8
-    property bool rightFits: rightCandidateX + labelWidth <= width - 8
-    property string effectiveLabelSide: labelSide === "left"
-                                       ? (leftFits || !rightFits ? "left" : "right")
-                                       : (rightFits || !leftFits ? "right" : "left")
-    property real unclampedLabelX: effectiveLabelSide === "left"
-                                   ? leftCandidateX : rightCandidateX
-    property real labelX: Math.max(8, Math.min(width - labelWidth - 8, unclampedLabelX))
-    property real labelY: Math.max(8, Math.min(height - labelHeight - 8, cy + labelOffY - 8))
-    property real labelCenterX: labelX + labelWidth / 2
-    property bool sourceIsRightOfLabel: cx >= labelCenterX
-    property real lineEndX: sourceIsRightOfLabel
-                            ? labelX + labelWidth - 6
-                            : labelX + 6
+
+    // ── Label geometry ───────────────────────────────────────
+    property real labelWidth: 190
+    property real labelHeight: 48
+
+    property real labelX: {
+        if (targetLabelFraction >= 0)
+            return width - labelWidth - 16
+        return Math.max(8, Math.min(width - labelWidth - 8, cx + labelOffX + 6))
+    }
+    property real labelY: {
+        if (targetLabelFraction >= 0) {
+            var raw = targetLabelFraction * height - labelHeight / 2
+            return Math.max(4, Math.min(height - labelHeight - 4, raw))
+        }
+        return Math.max(8, Math.min(height - labelHeight - 8, cy + labelOffY - 8))
+    }
+
+    property real lineEndX: labelX + 2
     property real lineEndY: labelY + labelHeight / 2
 
     activeFocusOnTab: true
@@ -56,10 +64,7 @@ Item {
     Accessible.name: label
 
     function triggerSelection() {
-        if (isHScroll)
-            mousePage.selectHScroll()
-        else
-            mousePage.selectButton(buttonKey)
+        mousePage.selectButton(buttonKey)
     }
 
     Keys.onReturnPressed: triggerSelection()
@@ -82,7 +87,6 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 200 } }
         Behavior on border.width { NumberAnimation { duration: 150 } }
 
-        // Pulse animation when selected
         SequentialAnimation on scale {
             loops: Animation.Infinite
             running: isSelected
@@ -106,7 +110,7 @@ Item {
         Behavior on color { ColorAnimation { duration: 150 } }
     }
 
-    // ── Click area (larger than the dot for easier targeting) ─
+    // ── Click area ───────────────────────────────────────────
     MouseArea {
         id: dotMa
         x: cx - 18
@@ -134,7 +138,6 @@ Item {
             ctx.stroke()
         }
 
-        // Repaint when position or selection changes
         Connections {
             target: hotspot
             function onCxChanged() { lineCanvas.requestPaint() }
@@ -154,42 +157,50 @@ Item {
         y: labelY
         width: labelWidth
         height: labelHeight
-        radius: 8
+        radius: 10
         color: isSelected
                ? (uiState.darkMode
-                  ? Qt.rgba(0, 0.83, 0.67, 0.12)
+                  ? Qt.rgba(0, 0.83, 0.67, 0.18)
                   : Qt.rgba(0.82, 0.97, 0.93, 0.9))
-                          : uiState.darkMode ? Qt.rgba(0, 0, 0, 0.35) : Qt.rgba(1, 1, 1, 0.92)
-        border.width: isSelected || hotspot.activeFocus ? 1 : 0
-        border.color: Qt.rgba(0, 0.83, 0.67, 0.3)
+               : uiState.darkMode ? "#1e293b" : Qt.rgba(1, 1, 1, 0.92)
+        border.width: 1
+        border.color: uiState.darkMode ? "#334155" : Qt.rgba(0, 0.83, 0.67, 0.3)
 
         Behavior on color { ColorAnimation { duration: 200 } }
 
-        Column {
+        Item {
             id: labelCol
-            anchors {
-                left: parent.left; leftMargin: 10
-                verticalCenter: parent.verticalCenter
-            }
-            spacing: 1
+            anchors.centerIn: parent
+            width: 166
+            height: titleText.height + (sublabelText.visible ? sublabelText.height + 2 : 0)
 
             Text {
+                id: titleText
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.top
                 text: hotspot.label
-                font { family: uiState.fontFamily; pixelSize: 12; bold: true }
+                font { family: uiState.fontFamily; pixelSize: 13; bold: true }
                 color: isSelected ? theme.accent : theme.textPrimary
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
             }
 
             Text {
+                id: sublabelText
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: titleText.bottom
+                anchors.topMargin: 2
                 text: hotspot.sublabel
-                font { family: uiState.fontFamily; pixelSize: 10 }
+                font { family: uiState.fontFamily; pixelSize: 11 }
                 color: theme.textSecondary
                 visible: text !== ""
-                width: Math.min(implicitWidth, 220)
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
                 elide: Text.ElideRight
             }
         }
 
-        // Make label clickable too
         MouseArea {
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
@@ -197,7 +208,7 @@ Item {
         }
     }
 
-    // ── Small dot at the end of the line ──────────────────────
+    // ── Small dot at the line endpoint ────────────────────────
     Rectangle {
         z: 1
         x: lineEndX - 3

@@ -1,5 +1,5 @@
 """
-Mouser — QML Entry Point
+MasterMice — QML Entry Point
 ==============================
 Launches the Qt Quick / QML UI with PySide6.
 Replaces the old tkinter-based main.py.
@@ -12,7 +12,7 @@ _t0 = _time.perf_counter()          # ◄ startup clock
 import sys
 import os
 import signal
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, unquote
 
 # Ensure project root on path — works for both normal Python and PyInstaller
 if getattr(sys, "frozen", False):
@@ -25,10 +25,12 @@ sys.path.insert(0, ROOT)
 # Set Material theme before any Qt imports
 os.environ["QT_QUICK_CONTROLS_STYLE"] = "Material"
 os.environ["QT_QUICK_CONTROLS_MATERIAL_ACCENT"] = "#00d4aa"
+# Disable Windows 11 Mica/acrylic transparency on the title bar
+os.environ["QT_QPA_PLATFORM"] = "windows:darkmode=0,nodarkframe"
 
 _t1 = _time.perf_counter()
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
-from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QAction, QColor, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtCore import QObject, Property, QCoreApplication, QRectF, Qt, QUrl, Signal
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickImageProvider
@@ -54,8 +56,11 @@ def _print_startup_times():
 
 
 def _app_icon() -> QIcon:
-    """Load the app icon from the pre-cropped .ico file."""
-    ico = os.path.join(ROOT, "images", "logo.ico")
+    """Load the app icon — uses mastermice.ico (multi-resolution)."""
+    ico = os.path.join(ROOT, "images", "mastermice.ico")
+    if not os.path.exists(ico):
+        # Fallback to legacy icon
+        ico = os.path.join(ROOT, "images", "logo.ico")
     return QIcon(ico)
 
 
@@ -83,13 +88,19 @@ def _render_svg_pixmap(path: str, color: QColor, size: int) -> QPixmap:
 
 
 def _tray_icon() -> QIcon:
-    if sys.platform != "darwin":
-        return _app_icon()
-
-    tray_svg = os.path.join(ROOT, "images", "icons", "mouse-simple.svg")
-    icon = QIcon(_render_svg_pixmap(tray_svg, QColor("#000000"), 18))
-    icon.setIsMask(True)
-    return icon
+    """Tray icon — use white variant for dark tray backgrounds on Windows,
+    mask icon on macOS, teal for everything else."""
+    if sys.platform == "darwin":
+        tray_svg = os.path.join(ROOT, "images", "icons", "mouse-simple.svg")
+        if os.path.exists(tray_svg):
+            icon = QIcon(_render_svg_pixmap(tray_svg, QColor("#000000"), 18))
+            icon.setIsMask(True)
+            return icon
+    # Windows/Linux: use the white ICO (visible on dark tray backgrounds)
+    white_ico = os.path.join(ROOT, "images", "mastermice_white.ico")
+    if os.path.exists(white_ico):
+        return QIcon(white_ico)
+    return _app_icon()
 
 
 class UiState(QObject):
@@ -156,6 +167,65 @@ class UiState(QObject):
         return self._font_family
 
 
+class MouseImageProvider(QQuickImageProvider):
+    """Serves mouse PNG images with enforced alpha transparency.
+    Light pixels (checkerboard / white background) are made transparent.
+    In dark mode (?dark=true), dark line pixels are inverted to white.
+    Results are cached so pixel processing only happens once per variant."""
+
+    def __init__(self, root_dir: str):
+        super().__init__(QQuickImageProvider.ImageType.Image)
+        self._img_dir = os.path.join(root_dir, "images")
+        self._cache = {}
+
+    def requestImage(self, image_id, size, requested_size):
+        if image_id in self._cache:
+            img = self._cache[image_id]
+            if size is not None:
+                size.setWidth(img.width())
+                size.setHeight(img.height())
+            return img
+
+        name, _, query_string = image_id.partition("?")
+        name = unquote(name)  # decode %20 → space
+        params = parse_qs(query_string)
+        dark = params.get("dark", ["false"])[0] == "true"
+
+        img_path = os.path.join(self._img_dir, name)
+        img = QImage(img_path)
+        if img.isNull():
+            return QImage()
+
+        img = img.convertToFormat(QImage.Format.Format_ARGB32)
+
+        # Process every pixel:
+        #  - light pixels (avg brightness > 200) → fully transparent
+        #  - dark pixels in dark mode → invert RGB, keep alpha
+        w, h = img.width(), img.height()
+        for y in range(h):
+            for x in range(w):
+                px = img.pixel(x, y)
+                a = (px >> 24) & 0xFF
+                if a < 10:
+                    continue
+                r = (px >> 16) & 0xFF
+                g = (px >> 8) & 0xFF
+                b = px & 0xFF
+                if (r + g + b) // 3 > 200:
+                    img.setPixel(x, y, 0)
+                elif dark:
+                    img.setPixel(x, y,
+                                 (a << 24) | ((255 - r) << 16)
+                                 | ((255 - g) << 8) | (255 - b))
+
+        self._cache[image_id] = img
+
+        if size is not None:
+            size.setWidth(img.width())
+            size.setHeight(img.height())
+        return img
+
+
 class AppIconProvider(QQuickImageProvider):
     def __init__(self, root_dir: str):
         super().__init__(QQuickImageProvider.ImageType.Pixmap)
@@ -182,13 +252,57 @@ class AppIconProvider(QQuickImageProvider):
 
 
 def main():
+    # Initialize logging before anything else prints
+    from core.config import load_config as _load_cfg, APP_VERSION
+    from core.logger import setup as _setup_logging
+    _cfg = _load_cfg()
+    _setup_logging(
+        _cfg.get("settings", {}).get("log_level", "errors"),
+        _cfg.get("settings", {}).get("log_max_kb", 1024),
+    )
+
+    print(f"[MasterMice] Version {APP_VERSION}")
     _print_startup_times()
+
+    # ── Single-instance check: kill any existing MasterMice ──────
+    from core.app_detector import AppDetector
+    _existing = AppDetector.is_running("MasterMice.exe")
+    if _existing:
+        print(f"[MasterMice] Killing existing instance (PID {_existing})...")
+        AppDetector.kill_process(_existing)
+        _time.sleep(1)
+
+    # ── Kill Logitech software + warn user ────────────────────────
+    _logi_procs = AppDetector.check_logitech_software()
+    _logi_killed = []
+    if _logi_procs:
+        print(f"[MasterMice] Logitech software detected: {', '.join(_logi_procs)}")
+        print("[MasterMice] Killing Logitech processes for HID++ access...")
+        import subprocess as _sp
+        for proc_name in _logi_procs:
+            try:
+                _sp.run(["taskkill", "/F", "/IM", proc_name],
+                        timeout=5, capture_output=True, creationflags=0x08000000)
+                _logi_killed.append(proc_name)
+                print(f"[MasterMice] Killed: {proc_name}")
+            except Exception:
+                pass
+        # Also stop Logitech services
+        for svc in ["LogiPluginService", "LogiOptionsPlusService"]:
+            try:
+                _sp.run(["sc", "stop", svc], timeout=5, capture_output=True,
+                        creationflags=0x08000000)
+                print(f"[MasterMice] Stopped service: {svc}")
+            except Exception:
+                pass
+        _time.sleep(1)  # let handles release
+
     _t5 = _time.perf_counter()
 
     QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication(sys.argv)
-    app.setApplicationName("Mouser")
-    app.setOrganizationName("Mouser")
+    app.setApplicationName("MasterMice")
+    app.setOrganizationName("MasterMice")
     app.setWindowIcon(_app_icon())
     ui_state = UiState(app)
 
@@ -217,17 +331,27 @@ def main():
     # ── QML Engine ─────────────────────────────────────────────
     qml_engine = QQmlApplicationEngine()
     qml_engine.addImageProvider("appicons", AppIconProvider(ROOT))
+    qml_engine.addImageProvider("mouseimage", MouseImageProvider(ROOT))
     qml_engine.rootContext().setContextProperty("backend", backend)
     qml_engine.rootContext().setContextProperty("uiState", ui_state)
-    qml_engine.rootContext().setContextProperty(
-        "applicationDirPath", ROOT.replace("\\", "/"))
+    _dir_fwd = ROOT.replace("\\", "/")
+    qml_engine.rootContext().setContextProperty("applicationDirPath", _dir_fwd)
+    # Build a file:// URL that works for both local (file:///C:/) and UNC
+    # (file:////server/share) paths.  QUrl.fromLocalFile puts the server
+    # in the authority component (file://server/…) which Qt Image can't open,
+    # so we construct the URL manually.
+    if _dir_fwd.startswith("//"):
+        _app_dir_url = "file://" + _dir_fwd        # file:////server/share
+    else:
+        _app_dir_url = "file:///" + _dir_fwd       # file:///C:/path
+    qml_engine.rootContext().setContextProperty("applicationDirUrl", _app_dir_url)
 
     qml_path = os.path.join(ROOT, "ui", "qml", "Main.qml")
     qml_engine.load(QUrl.fromLocalFile(qml_path))
     _t8 = _time.perf_counter()
 
     if not qml_engine.rootObjects():
-        print("[Mouser] FATAL: Failed to load QML")
+        print("[MasterMice] FATAL: Failed to load QML")
         sys.exit(1)
 
     root_window = qml_engine.rootObjects()[0]
@@ -237,16 +361,37 @@ def main():
     print(f"[Startup] QML load:         {(_t8-_t7)*1000:7.1f} ms")
     print(f"[Startup] TOTAL to window:  {(_t8-_t0)*1000:7.1f} ms")
 
+    # ── Show Logitech software warning if we killed anything ────
+    if _logi_killed:
+        from PySide6.QtWidgets import QMessageBox
+        _warn = QMessageBox(root_window)
+        _warn.setWindowTitle("MasterMice")
+        _warn.setIcon(QMessageBox.Icon.Warning)
+        _warn.setText("Logitech software was detected and stopped")
+        _warn.setInformativeText(
+            f"Stopped: {', '.join(_logi_killed)}\n\n"
+            "MasterMice needs exclusive access to your mouse's HID++ interface. "
+            "Logitech Options+ and SetPoint block this access.\n\n"
+            "To prevent this message:\n"
+            "  1. Uninstall Logi Options+ from Windows Settings\n"
+            "  2. Or disable its startup service:\n"
+            "     Win+R → services.msc → LogiPluginService → Disabled\n\n"
+            "MasterMice will now connect to your mouse."
+        )
+        _warn.setStandardButtons(QMessageBox.StandardButton.Ok)
+        _warn.exec()
+
     # ── Start engine AFTER window is ready (deferred) ──────────
     from PySide6.QtCore import QTimer
     QTimer.singleShot(0, lambda: (
         engine.start(),
-        print("[Mouser] Engine started — remapping is active"),
+        print("[MasterMice] Engine started — remapping is active"),
     ))
 
     # ── System Tray ────────────────────────────────────────────
     tray = QSystemTrayIcon(_tray_icon(), app)
-    tray.setToolTip("Mouser — MX Master 3S")
+    _name = backend.mouseModelName
+    tray.setToolTip("MasterMice — " + _name if _name else "MasterMice")
 
     tray_menu = QMenu()
 
@@ -292,9 +437,20 @@ def main():
 
     tray_menu.addSeparator()
 
-    quit_action = QAction("Quit Mouser", tray_menu)
+    quit_action = QAction("Quit MasterMice", tray_menu)
 
     def quit_app():
+        # Close HID++ handles before stopping
+        try:
+            hg = engine.hook._hid_gesture
+            if hg:
+                hg._close_short_handle()
+                if hg._dev:
+                    hg._dev.close()
+                    hg._dev = None
+                hg._running = False
+        except Exception:
+            pass
         engine.hook.stop()
         engine._app_detector.stop()
         tray.hide()
@@ -318,9 +474,16 @@ def main():
     try:
         sys.exit(app.exec())
     finally:
+        try:
+            hg = engine.hook._hid_gesture
+            if hg:
+                hg._close_short_handle()
+                hg._running = False
+        except Exception:
+            pass
         engine.hook.stop()
         engine._app_detector.stop()
-        print("[Mouser] Shut down cleanly")
+        print("[MasterMice] Shut down cleanly")
 
 
 if __name__ == "__main__":
