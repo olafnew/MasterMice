@@ -41,6 +41,8 @@ class Engine:
         self._connection_change_cb = None   # UI callback for device status
         self._battery_read_cb = None        # UI callback for battery level
         self._device_detected_cb = None     # UI callback for auto-detected model
+        self._dpi_read_cb = None            # UI callback for initial DPI
+        self._last_battery_event_time = 0.0
         self._lock = threading.Lock()
         self._setup_hooks()
 
@@ -149,8 +151,9 @@ class Engine:
                 pass
 
     def _on_svc_gesture_down(self, data):
-        """Gesture button pressed — dispatch to hook."""
-        self.hook._dispatch_event("gesture_click")
+        """Gesture button pressed — dispatch via hook callbacks."""
+        evt = MouseEvent("gesture_click")
+        self.hook._dispatch(evt)
 
     def _on_svc_gesture_up(self, data):
         """Gesture button released."""

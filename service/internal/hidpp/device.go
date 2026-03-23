@@ -73,10 +73,14 @@ func (d *Device) DiscoverFeatures() error {
 		fmt.Printf("[DEVICE] HiRes Wheel at index 0x%02X\n", d.HiResIdx)
 	}
 
-	// Smooth Scroll (try 0x2121 first, then 0x2101)
-	d.ScrollCtrlIdx, _ = t.RequestIRoot(FeatHiResWheel)
+	// Smooth Scroll — often on the same feature index as HiRes wheel
+	d.ScrollCtrlIdx = d.HiResIdx
 	if d.ScrollCtrlIdx == 0 {
-		d.ScrollCtrlIdx, _ = t.RequestIRoot(0x2101)
+		// Fallback: try dedicated scroll control features
+		d.ScrollCtrlIdx, _ = t.RequestIRoot(0x2121)
+		if d.ScrollCtrlIdx == 0 {
+			d.ScrollCtrlIdx, _ = t.RequestIRoot(0x2101)
+		}
 	}
 	if d.ScrollCtrlIdx != 0 {
 		fmt.Printf("[DEVICE] Scroll Control at index 0x%02X\n", d.ScrollCtrlIdx)
@@ -149,9 +153,11 @@ func (d *Device) ReadBattery() (*BatteryStatus, error) {
 			return nil, err
 		}
 		if len(report.Params) >= 3 {
+			extPower := report.Params[2]
+			// extPower: 0=none, 1-5=charging states, 6+=error
 			return &BatteryStatus{
 				Level:    int(report.Params[0]),
-				Charging: report.Params[2] >= 1,
+				Charging: extPower >= 1 && extPower <= 5,
 			}, nil
 		}
 	} else {

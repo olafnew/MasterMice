@@ -84,14 +84,17 @@ func (s *Server) handleClient(conn net.Conn) {
 		req, err := DecodeRequest(line)
 		if err != nil {
 			resp := &Response{ID: 0, OK: false, Err: fmt.Sprintf("invalid JSON: %v", err)}
-			data, _ := Encode(resp)
-			conn.Write(data)
+			if data, encErr := Encode(resp); encErr == nil {
+				conn.Write(data)
+			}
 			continue
 		}
 
 		resp := s.handler.Handle(req)
 		data, err := Encode(resp)
 		if err != nil {
+			errData, _ := Encode(&Response{ID: req.ID, OK: false, Err: "response encoding failed"})
+			conn.Write(errData)
 			continue
 		}
 		if _, err := conn.Write(data); err != nil {

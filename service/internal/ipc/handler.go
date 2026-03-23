@@ -3,15 +3,18 @@ package ipc
 import (
 	"fmt"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/olafnew/mastermice-svc/internal/hidpp"
 )
 
 // Handler dispatches IPC commands to device methods.
+// All device access is serialized via mu to prevent concurrent HID++ commands.
 type Handler struct {
 	Device    *hidpp.Device
 	StartTime time.Time
+	mu        sync.Mutex
 }
 
 // NewHandler creates a command handler for the given device.
@@ -23,7 +26,20 @@ func NewHandler(device *hidpp.Device) *Handler {
 }
 
 // Handle processes a request and returns a response.
+// Serializes device access across concurrent IPC clients.
 func (h *Handler) Handle(req *Request) *Response {
+	// health doesn't need device lock
+	if req.Cmd == "health" {
+		return h.handleHealth(req)
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.Device == nil {
+		return errResp(req.ID, "no device connected")
+	}
+
 	switch req.Cmd {
 
 	case "get_status":
@@ -117,14 +133,16 @@ func (h *Handler) Handle(req *Request) *Response {
 		data := map[string]interface{}{}
 		var hiresPtr, invertPtr *bool
 		if v, ok := req.Params["hires"]; ok {
-			b := v.(bool)
-			hiresPtr = &b
-			data["hires"] = b
+			if b, ok := v.(bool); ok {
+				hiresPtr = &b
+				data["hires"] = b
+			}
 		}
 		if v, ok := req.Params["invert"]; ok {
-			b := v.(bool)
-			invertPtr = &b
-			data["invert"] = b
+			if b, ok := v.(bool); ok {
+				invertPtr = &b
+				data["invert"] = b
+			}
 		}
 		if err := h.Device.SetHiResWheel(hiresPtr, invertPtr); err != nil {
 			return errResp(req.ID, err.Error())
@@ -167,19 +185,23 @@ func (h *Handler) Handle(req *Request) *Response {
 		})
 
 	case "health":
-		var mem runtime.MemStats
-		runtime.ReadMemStats(&mem)
-		return okResp(req.ID, map[string]interface{}{
-			"ok":        true,
-			"uptime_s":  int(time.Since(h.StartTime).Seconds()),
-			"mem_mb":    float64(mem.Alloc) / 1024 / 1024,
-			"sys_mb":    float64(mem.Sys) / 1024 / 1024,
-			"goroutines": runtime.NumGoroutine(),
-		})
+		return h.handleHealth(req)
 
 	default:
 		return errResp(req.ID, fmt.Sprintf("unknown command: %s", req.Cmd))
 	}
+}
+
+func (h *Handler) handleHealth(req *Request) *Response {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	return okResp(req.ID, map[string]interface{}{
+		"ok":         true,
+		"uptime_s":   int(time.Since(h.StartTime).Seconds()),
+		"mem_mb":     float64(mem.Alloc) / 1024 / 1024,
+		"sys_mb":     float64(mem.Sys) / 1024 / 1024,
+		"goroutines": runtime.NumGoroutine(),
+	})
 }
 
 func okResp(id int, data map[string]interface{}) *Response {

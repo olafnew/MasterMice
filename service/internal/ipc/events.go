@@ -33,7 +33,7 @@ func (b *Broadcaster) Remove(conn net.Conn) {
 }
 
 // Broadcast sends an event to all connected clients.
-// Silently drops clients that fail to write.
+// Removes clients that fail to write.
 func (b *Broadcaster) Broadcast(evt *Event) {
 	data, err := Encode(evt)
 	if err != nil {
@@ -41,15 +41,21 @@ func (b *Broadcaster) Broadcast(evt *Event) {
 	}
 
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
+	var failed []net.Conn
 	for conn := range b.clients {
 		_, werr := conn.Write(data)
 		if werr != nil {
-			// Client disconnected — remove it
-			delete(b.clients, conn)
-			conn.Close()
+			failed = append(failed, conn)
 		}
+	}
+	for _, conn := range failed {
+		delete(b.clients, conn)
+	}
+	b.mu.Unlock()
+
+	// Close failed connections outside the lock
+	for _, conn := range failed {
+		conn.Close()
 	}
 }
 

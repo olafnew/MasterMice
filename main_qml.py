@@ -421,12 +421,16 @@ def main():
     quit_action = QAction("Quit MasterMice", tray_menu)
 
     def quit_app():
-        # Close HID++ handles before stopping
+        # Disconnect from Go service + close any legacy HID++ handles
         try:
-            hg = engine.hook._hid_gesture
+            engine.svc.disconnect()
+        except Exception:
+            pass
+        try:
+            hg = getattr(engine.hook, '_hid_gesture', None)
             if hg:
                 hg._close_short_handle()
-                if hg._dev:
+                if getattr(hg, '_dev', None):
                     hg._dev.close()
                     hg._dev = None
                 hg._running = False
@@ -456,7 +460,11 @@ def main():
         sys.exit(app.exec())
     finally:
         try:
-            hg = engine.hook._hid_gesture
+            engine.svc.disconnect()
+        except Exception:
+            pass
+        try:
+            hg = getattr(engine.hook, '_hid_gesture', None)
             if hg:
                 hg._close_short_handle()
                 hg._running = False
