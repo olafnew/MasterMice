@@ -272,30 +272,11 @@ def main():
         AppDetector.kill_process(_existing)
         _time.sleep(1)
 
-    # ── Kill Logitech software + warn user ────────────────────────
+    # ── Logitech software kill is now handled by the Go service ──
+    # The service kills Logitech processes before opening HID++ handles.
+    # Check if anything was running so we can warn the user.
     _logi_procs = AppDetector.check_logitech_software()
-    _logi_killed = []
-    if _logi_procs:
-        print(f"[MasterMice] Logitech software detected: {', '.join(_logi_procs)}")
-        print("[MasterMice] Killing Logitech processes for HID++ access...")
-        import subprocess as _sp
-        for proc_name in _logi_procs:
-            try:
-                _sp.run(["taskkill", "/F", "/IM", proc_name],
-                        timeout=5, capture_output=True, creationflags=0x08000000)
-                _logi_killed.append(proc_name)
-                print(f"[MasterMice] Killed: {proc_name}")
-            except Exception:
-                pass
-        # Also stop Logitech services
-        for svc in ["LogiPluginService", "LogiOptionsPlusService"]:
-            try:
-                _sp.run(["sc", "stop", svc], timeout=5, capture_output=True,
-                        creationflags=0x08000000)
-                print(f"[MasterMice] Stopped service: {svc}")
-            except Exception:
-                pass
-        _time.sleep(1)  # let handles release
+    _logi_killed = _logi_procs  # service handles the actual kill
 
     _t5 = _time.perf_counter()
 

@@ -3,6 +3,31 @@ MasterMice Changelog
 Forked from: https://github.com/TomBadash/Mouser (commit a96d78b)
 Renamed from "Mouser" to "MasterMice" at v0.31
 
+v0.40 (2026-03-23)
+──────────────────
+ARCHITECTURE:
+  - Go Windows service (mastermice-svc.exe) for HID++ device communication
+  - Named pipe IPC (\\.\pipe\MasterMice) between service and Python tray app
+  - Service auto-kills Logitech Options+ before opening HID++ handles
+  - Service supports console mode (development) and Windows SCM service mode
+  - Install/uninstall via: mastermice-svc.exe install|uninstall
+  - Rotating log file with configurable size cap
+  - Memory watchdog (50MB threshold, 60s interval)
+  - Python app refactored: engine.py + backend.py use ServiceClient (pipe IPC)
+  - mouse_hook.py: HidGestureListener creation skipped (Go service owns HID++)
+  - New file: core/service_client.py — named pipe client for Go service
+  - pipe-test.exe — standalone IPC test client
+NEW:
+  - Full device state read/write via Go service: battery, DPI, SmartShift,
+    Hi-Res wheel, smooth scroll, haptic motor (MX4)
+  - Interactive console in service: dpi/smartshift/hires/smooth commands
+  - Device auto-detection via DEVICE_NAME + profile matching
+  - get_status, get_capabilities, health commands via IPC
+  - JSON-lines protocol with request/response ID matching and event broadcasting
+VALIDATED:
+  - MX Master 3 on Unifying receiver: all features read + write confirmed
+  - Named pipe IPC: health, status, battery, dpi, smartshift via pipe-test.exe
+
 v0.392 (2026-03-20)
 ───────────────────
 FIX:

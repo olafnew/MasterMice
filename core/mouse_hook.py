@@ -15,6 +15,9 @@ try:
 except Exception:              # ImportError or hidapi missing
     HidGestureListener = None
 
+# When True, skip HidGestureListener creation (Go service handles HID++)
+USE_SERVICE = True
+
 
 # ==================================================================
 # Shared: MouseEvent (platform-neutral)
@@ -829,7 +832,8 @@ if sys.platform == "win32":
         def start(self):
             if self._hook_thread and self._hook_thread.is_alive():
                 return
-            if HidGestureListener is not None:
+            if not USE_SERVICE and HidGestureListener is not None:
+                # Legacy: direct HID++ (only when Go service is not in use)
                 self._hid_gesture = HidGestureListener(
                     on_down=self._on_hid_gesture_down,
                     on_up=self._on_hid_gesture_up,
@@ -841,6 +845,8 @@ if sys.platform == "win32":
                     on_device_detected=self._on_hid_device_detected,
                 )
                 self._hid_gesture.start()
+            elif USE_SERVICE:
+                print("[MouseHook] HID++ via Go service (skipping HidGestureListener)")
             self._hook_thread = threading.Thread(target=self._run_hook, daemon=True)
             self._hook_thread.start()
             time.sleep(0.1)
@@ -1348,7 +1354,7 @@ elif sys.platform == "darwin":
                 return
             self._running = True
 
-            if HidGestureListener is not None:
+            if not USE_SERVICE and HidGestureListener is not None:
                 self._hid_gesture = HidGestureListener(
                     on_down=self._on_hid_gesture_down,
                     on_up=self._on_hid_gesture_up,

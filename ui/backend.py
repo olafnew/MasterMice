@@ -259,19 +259,13 @@ class Backend(QObject):
     @Property(str, notify=mouseConnectedChanged)
     def connectionType(self):
         """Return 'unifying', 'bolt', 'bluetooth', or 'unknown'."""
-        hg = self._engine.hook._hid_gesture if self._engine else None
-        if not hg or not self._mouse_connected:
+        if not self._engine or not self._mouse_connected:
             return "unknown"
-        dev_idx = getattr(hg, '_dev_idx', 0xFF)
-        # Bluetooth direct uses index 0xFF
-        if dev_idx == 0xFF:
-            return "bluetooth"
-        # Check receiver PID from the connected device info
-        pid = getattr(hg, '_connected_pid', 0)
-        if pid == 0xC548:
-            return "bolt"
-        elif pid in (0xC52B, 0xC534, 0xC539):
-            return "unifying"
+        svc = self._engine.svc
+        if svc.connected:
+            status = svc.get_status()
+            if status:
+                return status.get("connection_type", "unknown")
         return "unknown"
 
     @Property(list, notify=profilesChanged)
@@ -367,9 +361,9 @@ class Backend(QObject):
         """Read SmartShift threshold from device. Returns 1-50 or -1."""
         if not self._engine:
             return -1
-        hg = self._engine.hook._hid_gesture
-        if hg and hasattr(hg, "get_smart_shift"):
-            result = hg.get_smart_shift()
+        svc = self._engine.svc
+        if svc.connected:
+            result = svc.get_smart_shift()
             if result:
                 return result.get("threshold", -1)
         return -1
@@ -378,18 +372,18 @@ class Backend(QObject):
     def setSmartShiftThreshold(self, value):
         if not self._engine:
             return
-        hg = self._engine.hook._hid_gesture
-        if hg and hasattr(hg, "set_smart_shift"):
-            hg.set_smart_shift(value)
+        svc = self._engine.svc
+        if svc.connected:
+            svc.set_smart_shift(value)
         self.settingsChanged.emit()
 
     @Slot(result=bool)
     def getHiResScroll(self):
         if not self._engine:
             return False
-        hg = self._engine.hook._hid_gesture
-        if hg and hasattr(hg, "get_hires_wheel"):
-            result = hg.get_hires_wheel()
+        svc = self._engine.svc
+        if svc.connected:
+            result = svc.get_hires_wheel()
             if result:
                 return result.get("hires", False)
         return False
@@ -399,22 +393,21 @@ class Backend(QObject):
         """True if the connected device supports the Hi-Res wheel feature."""
         if not self._engine:
             return False
-        hg = self._engine.hook._hid_gesture
-        if hg:
-            return hg._hires_idx is not None
+        svc = self._engine.svc
+        if svc.connected:
+            caps = svc.get_capabilities()
+            return caps.get("has_hires", False) if caps else False
         return False
 
     @Slot(bool)
     def setHiResScroll(self, value):
         if not self._engine:
             return
-        hg = self._engine.hook._hid_gesture
-        if hg and hasattr(hg, "set_hires_wheel"):
-            hg.set_hires_wheel(hires=value)
-            # Update hook's scroll accumulator state
-            mult = getattr(hg, '_hires_multiplier', 15)
+        svc = self._engine.svc
+        if svc.connected:
+            svc.set_hires_wheel(hires=value)
             div = self._cfg.get("settings", {}).get("hires_scroll_divider", 15)
-            self._engine.update_hires_scroll_state(value, mult, div)
+            self._engine.update_hires_scroll_state(value, 15, div)
         self.settingsChanged.emit()
 
     @Property(int, notify=settingsChanged)
@@ -439,24 +432,30 @@ class Backend(QObject):
         """True if the connected device supports SmartShift."""
         if not self._engine:
             return False
-        hg = self._engine.hook._hid_gesture
-        return bool(hg and hg._smart_shift_idx is not None)
+        svc = self._engine.svc
+        if svc.connected:
+            caps = svc.get_capabilities()
+            return caps.get("has_smartshift", False) if caps else False
+        return False
 
     @Slot(result=int)
     def getSmartShiftVersion(self):
         """Returns 1 (MX3) or 2 (MX4 enhanced with force control)."""
         if not self._engine:
             return 0
-        hg = self._engine.hook._hid_gesture
-        return hg._smart_shift_ver if hg else 0
+        svc = self._engine.svc
+        if svc.connected:
+            caps = svc.get_capabilities()
+            return caps.get("smartshift_ver", 0) if caps else 0
+        return 0
 
     @Slot(result=bool)
     def getSmartShiftEnabled(self):
         if not self._engine:
             return True
-        hg = self._engine.hook._hid_gesture
-        if hg and hasattr(hg, "get_smart_shift"):
-            result = hg.get_smart_shift()
+        svc = self._engine.svc
+        if svc.connected:
+            result = svc.get_smart_shift()
             if result:
                 return result.get("enabled", True)
         return True
@@ -465,9 +464,13 @@ class Backend(QObject):
     def setSmartShiftEnabled(self, value):
         if not self._engine:
             return
-        hg = self._engine.hook._hid_gesture
-        if hg and hasattr(hg, "set_smart_shift"):
-            hg.set_smart_shift(threshold=None, enabled=value)
+        svc = self._engine.svc
+        if svc.connected:
+            # Read current threshold to preserve it
+            current = svc.get_smart_shift()
+            threshold = current.get("threshold", 10) if current else 10
+            force = current.get("force", 50) if current else 50
+            svc.set_smart_shift(threshold, force, value)
         self.settingsChanged.emit()
 
     @Slot(result=int)
@@ -475,9 +478,9 @@ class Backend(QObject):
         """Returns scroll force 1-100, or -1 if not supported."""
         if not self._engine:
             return -1
-        hg = self._engine.hook._hid_gesture
-        if hg and hasattr(hg, "get_smart_shift"):
-            result = hg.get_smart_shift()
+        svc = self._engine.svc
+        if svc.connected:
+            result = svc.get_smart_shift()
             if result:
                 return result.get("force", -1)
         return -1
@@ -486,9 +489,11 @@ class Backend(QObject):
     def setScrollForce(self, value):
         if not self._engine:
             return
-        hg = self._engine.hook._hid_gesture
-        if hg and hasattr(hg, "set_smart_shift"):
-            hg.set_smart_shift(threshold=None, force=value)
+        svc = self._engine.svc
+        if svc.connected:
+            current = svc.get_smart_shift()
+            threshold = current.get("threshold", 10) if current else 10
+            svc.set_smart_shift(threshold, value, True)
         self.settingsChanged.emit()
 
     # ── Smooth Scrolling ───────────────────────────────────────
@@ -497,37 +502,43 @@ class Backend(QObject):
     def hasSmoothScrolling(self):
         if not self._engine:
             return False
-        hg = self._engine.hook._hid_gesture
-        return bool(hg and hg._scroll_ctrl_idx is not None)
+        svc = self._engine.svc
+        if svc.connected:
+            caps = svc.get_capabilities()
+            return caps.get("has_smooth", False) if caps else False
+        return False
 
     @Slot(result=bool)
     def getSmoothScrolling(self):
         if not self._engine:
             return False
-        hg = self._engine.hook._hid_gesture
-        if hg and hasattr(hg, "get_smooth_scroll"):
-            result = hg.get_smooth_scroll()
-            return result if result is not None else False
+        svc = self._engine.svc
+        if svc.connected:
+            result = svc.get_smooth_scroll()
+            if result:
+                return result.get("enabled", False)
         return False
 
     @Slot(bool)
     def setSmoothScrolling(self, value):
         if not self._engine:
             return
-        hg = self._engine.hook._hid_gesture
-        if hg and hasattr(hg, "set_smooth_scroll"):
-            hg.set_smooth_scroll(value)
+        svc = self._engine.svc
+        if svc.connected:
+            svc.set_smooth_scroll(value)
         self.settingsChanged.emit()
 
     # ── Haptic Feedback (MX4) ──────────────────────────────────
-    # Uses HidD_SetOutputReport on SHORT handle — not hidapi.write()
 
     @Slot(result=bool)
     def hasHapticFeedback(self):
         if not self._engine:
             return False
-        hg = self._engine.hook._hid_gesture
-        return bool(hg and hg._short_handle is not None)
+        svc = self._engine.svc
+        if svc.connected:
+            caps = svc.get_capabilities()
+            return caps.get("has_haptics", False) if caps else False
+        return False
 
     @Slot(result=bool)
     def getHapticEnabled(self):
@@ -539,10 +550,10 @@ class Backend(QObject):
             return
         self._cfg.setdefault("settings", {})["haptic_enabled"] = bool(value)
         save_config(self._cfg)
-        hg = self._engine.hook._hid_gesture
-        if hg:
+        svc = self._engine.svc
+        if svc.connected:
             intensity = self._cfg.get("settings", {}).get("haptic_intensity", 60)
-            hg.haptic_set_config(value, intensity)
+            svc.set_haptic(value, intensity)
         self.settingsChanged.emit()
 
     @Slot(result=int)
@@ -556,9 +567,9 @@ class Backend(QObject):
         v = max(0, min(100, int(value)))
         self._cfg.setdefault("settings", {})["haptic_intensity"] = v
         save_config(self._cfg)
-        hg = self._engine.hook._hid_gesture
-        if hg:
-            hg.haptic_set_config(True, v)
+        svc = self._engine.svc
+        if svc.connected:
+            svc.set_haptic(True, v)
         self.settingsChanged.emit()
 
     @Slot()
@@ -566,9 +577,9 @@ class Backend(QObject):
         """Send a strong haptic pulse for testing."""
         if not self._engine:
             return
-        hg = self._engine.hook._hid_gesture
-        if hg:
-            hg.haptic_trigger(0x08)  # strong pulse
+        svc = self._engine.svc
+        if svc.connected:
+            svc.haptic_trigger(0x08)  # strong pulse
             print("[Settings] Haptic test pulse sent")
 
     @Property(int, notify=settingsChanged)
@@ -615,20 +626,30 @@ class Backend(QObject):
 
     @Slot(result=str)
     def runDiagnostics(self):
-        """Run HID++ device diagnostics and return results.
-        Pauses the live HID++ listener first so we can open the device."""
+        """Run diagnostics via the service or fallback to direct probe."""
         from core.config import APP_VERSION
-        # Pause HID++ listener to release the device
-        hg = self._engine.hook._hid_gesture if self._engine else None
-        # Read the known device index before pausing (survives cleanup)
-        known_dev_idx = getattr(hg, '_dev_idx', 0xFF) if hg else 0xFF
-        if hg and hasattr(hg, "pause"):
-            hg.pause()
-        try:
-            return self._runDiagnosticsInner(APP_VERSION, known_dev_idx)
-        finally:
-            if hg and hasattr(hg, "resume"):
-                hg.resume()
+        svc = self._engine.svc if self._engine else None
+        if svc and svc.connected:
+            lines = [f"=== MasterMice v{APP_VERSION} Diagnostics (via service) ===", ""]
+            status = svc.get_status()
+            if status:
+                for k, v in status.items():
+                    lines.append(f"  {k}: {v}")
+            lines.append("")
+            caps = svc.get_capabilities()
+            if caps:
+                lines.append("Capabilities:")
+                for k, v in caps.items():
+                    lines.append(f"  {k}: {v}")
+            lines.append("")
+            health = svc.health()
+            if health:
+                lines.append("Service Health:")
+                for k, v in health.items():
+                    lines.append(f"  {k}: {v}")
+            return "\n".join(lines)
+        # Fallback: direct probe (legacy)
+        return self._runDiagnosticsInner(APP_VERSION, 0xFF)
 
     def _runDiagnosticsInner(self, app_version, hint_dev_idx=0xFF):
         lines = []

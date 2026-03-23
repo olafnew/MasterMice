@@ -35,3 +35,7 @@ rename_to_mastermice.bat
 
 # Claude Code local config
 .claude/
+
+# Go build artifacts
+service/*.exe
+service/go.sum

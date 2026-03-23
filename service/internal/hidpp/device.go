@@ -1,0 +1,355 @@
+package hidpp
+
+import (
+	"fmt"
+	"time"
+)
+
+// Device represents a connected Logitech HID++ device with discovered features.
+type Device struct {
+	Transport *Transport
+	DevIdx    byte
+	ConnPID   uint16
+
+	// Identification
+	Name     string
+	ModelKey string
+	Profile  *DeviceProfile
+
+	// Discovered feature indices (0 = not found)
+	NameIdx      byte
+	BattIdx      byte
+	BattType     string // "unified" or "level"
+	DPIIdx       byte
+	SmartShiftIdx byte
+	SmartShiftVer int // 1 or 2
+	HiResIdx     byte
+	ScrollCtrlIdx byte
+	HapticIdx    byte
+	ReprogIdx    byte
+
+	// Cached state
+	CachedBattLevel int // MX3 quirk: cache last known level
+}
+
+// DiscoverFeatures uses IRoot to find all features declared in the device profile.
+func (d *Device) DiscoverFeatures() error {
+	if d.Profile == nil {
+		return fmt.Errorf("no device profile set")
+	}
+	p := d.Profile
+	t := d.Transport
+
+	// Battery
+	d.BattIdx, _ = t.RequestIRoot(p.BatteryFeatureID)
+	if d.BattIdx != 0 {
+		if p.BatteryFeatureID == FeatBattUnified {
+			d.BattType = "unified"
+		} else {
+			d.BattType = "level"
+		}
+		fmt.Printf("[DEVICE] Battery (0x%04X) at index 0x%02X\n", p.BatteryFeatureID, d.BattIdx)
+	}
+
+	// DPI
+	d.DPIIdx, _ = t.RequestIRoot(FeatAdjDPI)
+	if d.DPIIdx != 0 {
+		fmt.Printf("[DEVICE] DPI at index 0x%02X\n", d.DPIIdx)
+	}
+
+	// SmartShift
+	d.SmartShiftIdx, _ = t.RequestIRoot(p.SmartShiftFeatID)
+	if d.SmartShiftIdx != 0 {
+		d.SmartShiftVer = p.SmartShiftVer
+		fmt.Printf("[DEVICE] SmartShift v%d at index 0x%02X\n", d.SmartShiftVer, d.SmartShiftIdx)
+	}
+
+	// Hi-Res Wheel (try v2 first, then v1)
+	d.HiResIdx, _ = t.RequestIRoot(FeatHiResWheel2)
+	if d.HiResIdx == 0 {
+		d.HiResIdx, _ = t.RequestIRoot(FeatHiResWheel)
+	}
+	if d.HiResIdx != 0 {
+		fmt.Printf("[DEVICE] HiRes Wheel at index 0x%02X\n", d.HiResIdx)
+	}
+
+	// Smooth Scroll (try 0x2121 first, then 0x2101)
+	d.ScrollCtrlIdx, _ = t.RequestIRoot(FeatHiResWheel)
+	if d.ScrollCtrlIdx == 0 {
+		d.ScrollCtrlIdx, _ = t.RequestIRoot(0x2101)
+	}
+	if d.ScrollCtrlIdx != 0 {
+		fmt.Printf("[DEVICE] Scroll Control at index 0x%02X\n", d.ScrollCtrlIdx)
+	}
+
+	// REPROG_V4
+	d.ReprogIdx, _ = t.RequestIRoot(FeatReprogV4)
+	if d.ReprogIdx != 0 {
+		fmt.Printf("[DEVICE] REPROG_V4 at index 0x%02X\n", d.ReprogIdx)
+	}
+
+	return nil
+}
+
+// ── DPI ──────────────────────────────────────────────────────────
+
+func (d *Device) ReadDPI() (int, error) {
+	if d.DPIIdx == 0 {
+		return 0, fmt.Errorf("DPI feature not available")
+	}
+	report, err := d.Transport.Request(d.DPIIdx, 2, []byte{0x00}, 2*time.Second)
+	if err != nil {
+		return 0, err
+	}
+	if len(report.Params) >= 3 {
+		return int(report.Params[1])<<8 | int(report.Params[2]), nil
+	}
+	return 0, fmt.Errorf("DPI response too short")
+}
+
+func (d *Device) SetDPI(dpi int) error {
+	if d.DPIIdx == 0 {
+		return fmt.Errorf("DPI feature not available")
+	}
+	if dpi < 200 {
+		dpi = 200
+	}
+	if d.Profile != nil && dpi > d.Profile.DPIMax {
+		dpi = d.Profile.DPIMax
+	}
+	hi := byte((dpi >> 8) & 0xFF)
+	lo := byte(dpi & 0xFF)
+	report, err := d.Transport.Request(d.DPIIdx, 3, []byte{0x00, hi, lo}, 2*time.Second)
+	if err != nil {
+		return err
+	}
+	if len(report.Params) >= 3 {
+		actual := int(report.Params[1])<<8 | int(report.Params[2])
+		fmt.Printf("[DPI] Set to %d (requested %d)\n", actual, dpi)
+	}
+	return nil
+}
+
+// ── Battery ──────────────────────────────────────────────────────
+
+type BatteryStatus struct {
+	Level    int
+	Charging bool
+}
+
+func (d *Device) ReadBattery() (*BatteryStatus, error) {
+	if d.BattIdx == 0 {
+		return nil, fmt.Errorf("battery feature not available")
+	}
+
+	if d.BattType == "unified" {
+		// 0x1004: func 1 = get_status → [soc, battStatus, extPower]
+		report, err := d.Transport.Request(d.BattIdx, 1, nil, 2*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		if len(report.Params) >= 3 {
+			return &BatteryStatus{
+				Level:    int(report.Params[0]),
+				Charging: report.Params[2] >= 1,
+			}, nil
+		}
+	} else {
+		// 0x1000: func 0 = get_battery_level → [level, nextLevel, battStatus]
+		report, err := d.Transport.Request(d.BattIdx, 0, nil, 2*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		if len(report.Params) >= 3 {
+			level := int(report.Params[0])
+			battStatus := report.Params[2]
+			charging := battStatus >= 1 && battStatus <= 4
+
+			// MX3 quirk: reports 0% while charging — use cache
+			if charging && level == 0 && d.CachedBattLevel > 0 {
+				level = d.CachedBattLevel
+			} else if !charging && level > 0 {
+				d.CachedBattLevel = level
+			}
+
+			return &BatteryStatus{Level: level, Charging: charging}, nil
+		}
+	}
+	return nil, fmt.Errorf("battery response too short")
+}
+
+// ── SmartShift ───────────────────────────────────────────────────
+
+type SmartShiftStatus struct {
+	Enabled   bool
+	Threshold int
+	Force     int // -1 if v1 (no force)
+	Mode      int
+}
+
+func (d *Device) GetSmartShift() (*SmartShiftStatus, error) {
+	if d.SmartShiftIdx == 0 {
+		return nil, fmt.Errorf("SmartShift not available")
+	}
+
+	if d.SmartShiftVer == 2 {
+		report, err := d.Transport.Request(d.SmartShiftIdx, 1, nil, 2*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		if len(report.Params) >= 3 {
+			mode := int(report.Params[0])
+			threshold := int(report.Params[1])
+			force := int(report.Params[2])
+			return &SmartShiftStatus{
+				Enabled:   threshold != 0xFF,
+				Threshold: threshold,
+				Force:     force,
+				Mode:      mode,
+			}, nil
+		}
+	} else {
+		report, err := d.Transport.Request(d.SmartShiftIdx, 0, nil, 2*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		if len(report.Params) >= 3 {
+			mode := int(report.Params[0])
+			threshold := int(report.Params[1])
+			return &SmartShiftStatus{
+				Enabled:   threshold != 0xFF,
+				Threshold: threshold,
+				Force:     -1,
+				Mode:      mode,
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("SmartShift response too short")
+}
+
+func (d *Device) SetSmartShift(threshold int, force int, enabled bool) error {
+	if d.SmartShiftIdx == 0 {
+		return fmt.Errorf("SmartShift not available")
+	}
+
+	t := threshold
+	if !enabled {
+		t = 0xFF
+	} else {
+		if t < 1 {
+			t = 1
+		}
+		if t > 50 {
+			t = 50
+		}
+	}
+
+	if d.SmartShiftVer == 2 {
+		f := force
+		if f < 1 {
+			f = 1
+		}
+		if f > 100 {
+			f = 100
+		}
+		_, err := d.Transport.Request(d.SmartShiftIdx, 2,
+			[]byte{0x02, byte(t), byte(f)}, 2*time.Second)
+		return err
+	}
+
+	// v1: func 1 SET [autoDisengage=10, threshold]
+	_, err := d.Transport.Request(d.SmartShiftIdx, 1,
+		[]byte{10, byte(t)}, 2*time.Second)
+	return err
+}
+
+// ── Hi-Res Wheel ─────────────────────────────────────────────────
+
+type HiResStatus struct {
+	Target bool
+	HiRes  bool
+	Invert bool
+}
+
+func (d *Device) GetHiResWheel() (*HiResStatus, error) {
+	if d.HiResIdx == 0 {
+		return nil, fmt.Errorf("HiRes wheel not available")
+	}
+	report, err := d.Transport.Request(d.HiResIdx, 1, nil, 2*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	if len(report.Params) >= 1 {
+		flags := report.Params[0]
+		return &HiResStatus{
+			Target: flags&0x01 != 0,
+			HiRes:  flags&0x02 != 0,
+			Invert: flags&0x04 != 0,
+		}, nil
+	}
+	return nil, fmt.Errorf("HiRes response too short")
+}
+
+func (d *Device) SetHiResWheel(hires, invert *bool) error {
+	if d.HiResIdx == 0 {
+		return fmt.Errorf("HiRes wheel not available")
+	}
+	current, err := d.GetHiResWheel()
+	if err != nil {
+		return err
+	}
+
+	var flags byte
+	h := current.HiRes
+	if hires != nil {
+		h = *hires
+	}
+	inv := current.Invert
+	if invert != nil {
+		inv = *invert
+	}
+	if current.Target {
+		flags |= 0x01
+	}
+	if h {
+		flags |= 0x02
+	}
+	if inv {
+		flags |= 0x04
+	}
+
+	_, err = d.Transport.Request(d.HiResIdx, 2, []byte{flags}, 2*time.Second)
+	return err
+}
+
+// ── Smooth Scroll ────────────────────────────────────────────────
+
+func (d *Device) GetSmoothScroll() (bool, error) {
+	if d.ScrollCtrlIdx == 0 {
+		return false, fmt.Errorf("smooth scroll not available")
+	}
+	report, err := d.Transport.Request(d.ScrollCtrlIdx, 1, nil, 2*time.Second)
+	if err != nil {
+		return false, err
+	}
+	if len(report.Params) >= 1 {
+		return report.Params[0]&0x01 != 0, nil
+	}
+	return false, fmt.Errorf("smooth scroll response too short")
+}
+
+func (d *Device) SetSmoothScroll(enabled bool) error {
+	if d.ScrollCtrlIdx == 0 {
+		return fmt.Errorf("smooth scroll not available")
+	}
+	var val byte
+	if enabled {
+		if d.Profile != nil {
+			val = d.Profile.SmoothScrollOn
+		} else {
+			val = 0x01
+		}
+	}
+	_, err := d.Transport.Request(d.ScrollCtrlIdx, 2, []byte{val}, 2*time.Second)
+	return err
+}

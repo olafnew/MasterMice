@@ -122,32 +122,30 @@ Output goes to `dist\MasterMice {version}\`. Zip and distribute.
 
 ## Architecture
 
+MasterMice uses a **two-process architecture**: a Go service for device communication and a Python tray app for UI and mouse hooks.
+
 ```
-┌─────────────┐     ┌──────────────┐     ┌────────────────┐
-│  Mouse HW   │────▶│  MouseHook   │────▶│    Engine       │
-│  (HID++)    │     │  (WH_MOUSE_LL│     │  (orchestrator) │
-└─────────────┘     │  + raw input)│     └───────┬────────┘
-                    └──────────────┘             │
-                          ▲               ┌──────▼────────┐
-                     block/pass           │ KeySimulator   │
-                                          │ (SendInput)    │
-┌─────────────┐     ┌──────────────┐      └───────────────┘
-│   QML UI    │◀───▶│   Backend    │
-│  (PySide6)  │     │  (QObject)   │      ┌───────────────┐
-└─────────────┘     └──────┬───────┘      │  AppDetector   │
-                           │              │  (foreground)   │
-                    ┌──────▼───────┐      └───────────────┘
-                    │ HidGesture   │
-                    │ Listener     │
-                    │ (HID++ 2.0)  │
-                    └──────────────┘
+┌──────────────────────────────────┐   ┌──────────────────────────────────┐
+│  Go Service (mastermice-svc.exe) │   │  Python Tray App (MasterMice)    │
+│                                  │   │                                  │
+│  ├── HID++ 2.0 protocol         │   │  ├── WH_MOUSE_LL hook            │
+│  ├── Device discovery            │   │  ├── QML settings UI             │
+│  ├── Battery / DPI / SmartShift  │   │  ├── App detection               │
+│  ├── Haptic motor (MX4)         │   │  ├── Key/mouse simulation         │
+│  ├── Named pipe server           │◄─►│  ├── ServiceClient (pipe IPC)    │
+│  ├── Logitech software kill      │   │  └── System tray                 │
+│  └── Windows SCM service         │   └──────────────────────────────────┘
+│                                  │
+│  Starts at boot, survives UI     │   Starts at user login
+│  crashes, 3 MB memory            │   Closes without stopping device
+└──────────────────────────────────┘
 ```
 
-- **MouseHook** — low-level Windows mouse hook on a dedicated thread with its own message pump
-- **HidGestureListener** — HID++ 2.0 protocol: feature discovery, battery, SmartShift, DPI, haptics, button divert
-- **Engine** — wires hook callbacks to actions, handles per-app profile switching
-- **Backend** — QML-Python bridge exposing properties and slots
-- **AppDetector** — polls foreground window, resolves UWP apps
+- **Go Service** — owns all HID++ device I/O. Runs as a Windows service or standalone console. Communicates via named pipe (`\\.\pipe\MasterMice`) using JSON-lines protocol.
+- **MouseHook** — low-level Windows mouse hook for button remapping (must run in user session)
+- **Engine** — wires hook callbacks to actions, connects to Go service via ServiceClient
+- **Backend** — QML-Python bridge, routes device commands through the service pipe
+- **AppDetector** — polls foreground window for per-app profile switching
 
 ---
 
