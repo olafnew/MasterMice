@@ -155,7 +155,17 @@ if sys.platform == "win32":
             wc = _get_window_class(hwnd)
             if wc not in _EXPLORER_CLASSES:
                 title = _get_window_title(hwnd)
-                print(f"[AppDetect] FG: explorer.exe class={wc} title='{title}'")
+                # Deduplicate: skip if same class+title as last log,
+                # plus throttle to max 1 print per 5 seconds
+                import time as _time
+                _sig = f"{wc}|{title}"
+                _now = _time.time()
+                _last_t = getattr(get_foreground_exe, '_last_explorer_time', 0)
+                if (_sig != getattr(get_foreground_exe, '_last_explorer_sig', None)
+                        or _now - _last_t > 5.0):
+                    get_foreground_exe._last_explorer_sig = _sig
+                    get_foreground_exe._last_explorer_time = _now
+                    print(f"[AppDetect] FG: explorer.exe class={wc} title='{title}'")
                 real = _resolve_uwp_child(hwnd)
                 if real:
                     return real
@@ -220,3 +230,65 @@ class AppDetector:
             except Exception:
                 pass
             self._stop.wait(self._interval)
+
+    @staticmethod
+    def is_running(name="MasterMice.exe"):
+        """Check if another instance of the given process is running.
+        Returns the PID if found, else None. Skips own PID."""
+        if sys.platform != "win32":
+            return None
+        import subprocess
+        try:
+            out = subprocess.check_output(
+                ["tasklist", "/FI", f"IMAGENAME eq {name}", "/FO", "CSV", "/NH"],
+                text=True, timeout=5, creationflags=0x08000000)
+            my_pid = os.getpid()
+            for line in out.strip().split("\n"):
+                if not line.strip() or name.lower() not in line.lower():
+                    continue
+                parts = line.replace('"', '').split(',')
+                if len(parts) >= 2:
+                    try:
+                        pid = int(parts[1])
+                        if pid != my_pid:
+                            return pid
+                    except ValueError:
+                        pass
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def kill_process(pid):
+        """Kill a process by PID."""
+        if sys.platform != "win32":
+            return
+        import subprocess
+        try:
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                           timeout=5, capture_output=True,
+                           creationflags=0x08000000)
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_logitech_software():
+        """Check for running Logitech software that may block HID access.
+        Returns list of process names found."""
+        if sys.platform != "win32":
+            return []
+        import subprocess
+        found = []
+        targets = ["logioptionsplus_agent.exe", "LogiAppBroker.exe",
+                    "SetPoint.exe", "SetPointP.exe", "LogiMgr.exe"]
+        try:
+            out = subprocess.check_output(
+                ["tasklist", "/FO", "CSV", "/NH"],
+                text=True, timeout=5, creationflags=0x08000000)
+            out_lower = out.lower()
+            for t in targets:
+                if t.lower() in out_lower:
+                    found.append(t)
+        except Exception:
+            pass
+        return found
