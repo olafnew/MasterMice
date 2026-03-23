@@ -6,7 +6,7 @@ import "Theme.js" as Theme
 
 Item {
     id: settingsPage
-    readonly property var theme: Theme.palette(uiState.darkMode)
+    readonly property var theme: Theme.palette(uiState ? uiState.darkMode : false)
     property bool diagRunning: false
 
     Timer {
@@ -49,7 +49,7 @@ Item {
                         spacing: 10
                         Text {
                             text: "Settings"
-                            font { family: uiState.fontFamily; pixelSize: 24; bold: true }
+                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 24; bold: true }
                             color: settingsPage.theme.textPrimary
                         }
                         Rectangle {
@@ -61,14 +61,14 @@ Item {
                                 id: verText
                                 anchors.centerIn: parent
                                 text: "v" + (backend ? backend.appVersion : "")
-                                font { family: uiState.fontFamily; pixelSize: 11 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
                                 color: settingsPage.theme.accent
                             }
                         }
                     }
                     Text {
                         text: "Configure MasterMice preferences"
-                        font { family: uiState.fontFamily; pixelSize: 13 }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                         color: settingsPage.theme.textSecondary
                     }
                 }
@@ -102,13 +102,13 @@ Item {
 
                     Text {
                         text: "Mouse Type"
-                        font { family: uiState.fontFamily; pixelSize: 16; bold: true }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 16; bold: true }
                         color: settingsPage.theme.textPrimary
                     }
 
                     Text {
                         text: "Select which Logitech mouse you are using"
-                        font { family: uiState.fontFamily; pixelSize: 12 }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                         color: settingsPage.theme.textSecondary
                     }
 
@@ -137,7 +137,7 @@ Item {
                                     id: mtLabel
                                     anchors.centerIn: parent
                                     text: modelData.label
-                                    font { family: uiState.fontFamily; pixelSize: 13 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                     color: backend && backend.mouseModel === modelData.id
                                            ? settingsPage.theme.bgSidebar
                                            : settingsPage.theme.textPrimary
@@ -178,13 +178,13 @@ Item {
 
                     Text {
                         text: "Appearance"
-                        font { family: uiState.fontFamily; pixelSize: 16; bold: true }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 16; bold: true }
                         color: settingsPage.theme.textPrimary
                     }
 
                     Text {
                         text: "Choose light or dark mode for the interface"
-                        font { family: uiState.fontFamily; pixelSize: 12 }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                         color: settingsPage.theme.textSecondary
                     }
 
@@ -201,7 +201,7 @@ Item {
                             delegate: Rectangle {
                                 width: amLabel.implicitWidth + 24
                                 height: 34; radius: 8
-                                color: uiState.appearanceMode === modelData.id
+                                color: (uiState && uiState.appearanceMode === modelData.id)
                                        ? settingsPage.theme.accent
                                        : amMa.containsMouse
                                          ? settingsPage.theme.bgCardHover
@@ -214,8 +214,8 @@ Item {
                                     id: amLabel
                                     anchors.centerIn: parent
                                     text: modelData.label
-                                    font { family: uiState.fontFamily; pixelSize: 13 }
-                                    color: uiState.appearanceMode === modelData.id
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
+                                    color: (uiState && uiState.appearanceMode === modelData.id)
                                            ? settingsPage.theme.bgSidebar
                                            : settingsPage.theme.textPrimary
                                 }
@@ -225,7 +225,7 @@ Item {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: uiState.appearanceMode = modelData.id
+                                    onClicked: if (uiState) uiState.appearanceMode = modelData.id
                                 }
                             }
                         }
@@ -259,7 +259,7 @@ Item {
 
                         Text {
                             text: "Run on Startup"
-                            font { family: uiState.fontFamily; pixelSize: 16; bold: true }
+                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 16; bold: true }
                             color: settingsPage.theme.textPrimary
                         }
 
@@ -273,7 +273,7 @@ Item {
                                 id: csText
                                 anchors.centerIn: parent
                                 text: "Coming soon"
-                                font { family: uiState.fontFamily; pixelSize: 9 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 9 }
                                 color: settingsPage.theme.textDim
                             }
                         }
@@ -281,7 +281,7 @@ Item {
 
                     Text {
                         text: "Launch MasterMice automatically as a background service when Windows starts"
-                        font { family: uiState.fontFamily; pixelSize: 12 }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                         color: settingsPage.theme.textSecondary
                     }
 
@@ -297,7 +297,7 @@ Item {
 
                             Text {
                                 text: "Start as Windows service"
-                                font { family: uiState.fontFamily; pixelSize: 13 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                 color: settingsPage.theme.textDim
                                 Layout.fillWidth: true
                             }
@@ -333,13 +333,13 @@ Item {
 
                     Text {
                         text: "Logging"
-                        font { family: uiState.fontFamily; pixelSize: 16; bold: true }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 16; bold: true }
                         color: settingsPage.theme.textPrimary
                     }
 
                     Text {
                         text: "Control log verbosity and view application logs"
-                        font { family: uiState.fontFamily; pixelSize: 12 }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                         color: settingsPage.theme.textSecondary
                     }
 
@@ -369,7 +369,7 @@ Item {
                                     id: llLabel
                                     anchors.centerIn: parent
                                     text: modelData.label
-                                    font { family: uiState.fontFamily; pixelSize: 13 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                     color: backend && backend.logLevel === modelData.id
                                            ? settingsPage.theme.bgSidebar
                                            : settingsPage.theme.textPrimary
@@ -393,7 +393,7 @@ Item {
 
                         Text {
                             text: "Max log size:"
-                            font { family: uiState.fontFamily; pixelSize: 13 }
+                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                             color: settingsPage.theme.textPrimary
                             anchors.verticalCenter: parent.verticalCenter
                         }
@@ -409,7 +409,7 @@ Item {
 
                         Text {
                             text: Math.round(logSizeSlider.value) + " KB"
-                            font { family: uiState.fontFamily; pixelSize: 13; bold: true }
+                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13; bold: true }
                             color: settingsPage.theme.accent
                             anchors.verticalCenter: parent.verticalCenter
                         }
@@ -475,7 +475,7 @@ Item {
                                 id: diagLabel
                                 anchors.centerIn: parent
                                 text: "Run Diagnostics"
-                                font { family: uiState.fontFamily; pixelSize: 13; bold: true }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13; bold: true }
                                 color: diagMa.containsMouse
                                        ? settingsPage.theme.bgSidebar
                                        : settingsPage.theme.accent
@@ -508,7 +508,7 @@ Item {
                                 id: clearLabel
                                 anchors.centerIn: parent
                                 text: "Clear Log"
-                                font { family: uiState.fontFamily; pixelSize: 13 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                 color: settingsPage.theme.textPrimary
                             }
 
@@ -537,7 +537,7 @@ Item {
                                 id: refreshLabel
                                 anchors.centerIn: parent
                                 text: "Refresh Log"
-                                font { family: uiState.fontFamily; pixelSize: 13 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                 color: settingsPage.theme.textPrimary
                             }
 
@@ -563,7 +563,7 @@ Item {
                                 id: openLabel
                                 anchors.centerIn: parent
                                 text: "Open in Explorer"
-                                font { family: uiState.fontFamily; pixelSize: 13 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                 color: settingsPage.theme.textPrimary
                             }
 

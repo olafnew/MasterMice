@@ -18,11 +18,12 @@ ApplicationWindow {
         return base
     }
 
-    property string appearanceMode: uiState.appearanceMode
+    property string appearanceMode: uiState ? uiState.appearanceMode : "system"
     readonly property bool darkMode: appearanceMode === "dark"
                                     || (appearanceMode === "system"
-                                        && uiState.systemDarkMode)
+                                        && (uiState ? uiState.systemDarkMode : false))
     readonly property var theme: Theme.palette(darkMode)
+    readonly property string fontFamily: uiState ? uiState.fontFamily : "Segoe UI"
     property int currentPage: 0
     property Item hoveredNavItem: null
     property string hoveredNavText: ""
@@ -284,7 +285,7 @@ ApplicationWindow {
                 anchors.centerIn: parent
                 text: root.hoveredNavText
                 font {
-                    family: uiState.fontFamily
+                    family: root.fontFamily
                     pixelSize: 12
                 }
                 color: root.theme.tooltipText
@@ -310,7 +311,7 @@ ApplicationWindow {
             id: toastText
             anchors.centerIn: parent
             font {
-                family: uiState.fontFamily
+                family: root.fontFamily
                 pixelSize: 12
                 bold: true
             }
@@ -364,7 +365,7 @@ ApplicationWindow {
             }
             width: parent.width - 80
             wrapMode: Text.WordWrap
-            font { family: uiState.fontFamily; pixelSize: 12 }
+            font { family: root.fontFamily; pixelSize: 12 }
             color: "white"
             horizontalAlignment: Text.AlignHCenter
         }
@@ -413,7 +414,7 @@ ApplicationWindow {
 
                 Text {
                     text: "Welcome to MasterMice"
-                    font { family: uiState.fontFamily; pixelSize: 22; bold: true }
+                    font { family: root.fontFamily; pixelSize: 22; bold: true }
                     color: root.theme.textPrimary
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
@@ -422,7 +423,7 @@ ApplicationWindow {
                     text: backend && backend.mouseConnected
                           ? "Detecting your mouse..."
                           : "Connect your Logitech mouse, or select manually"
-                    font { family: uiState.fontFamily; pixelSize: 13 }
+                    font { family: root.fontFamily; pixelSize: 13 }
                     color: root.theme.textSecondary
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
@@ -473,12 +474,12 @@ ApplicationWindow {
 
                                 Text {
                                     text: modelData.label
-                                    font { family: uiState.fontFamily; pixelSize: 15; bold: true }
+                                    font { family: root.fontFamily; pixelSize: 15; bold: true }
                                     color: root.theme.textPrimary
                                 }
                                 Text {
                                     text: modelData.desc
-                                    font { family: uiState.fontFamily; pixelSize: 11 }
+                                    font { family: root.fontFamily; pixelSize: 11 }
                                     color: root.theme.textSecondary
                                     width: parent.width
                                     wrapMode: Text.WordWrap

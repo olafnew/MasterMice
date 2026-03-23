@@ -3,6 +3,105 @@ MasterMice Changelog
 Forked from: https://github.com/TomBadash/Mouser (commit a96d78b)
 Renamed from "Mouser" to "MasterMice" at v0.31
 
+v0.411 (2026-03-24)
+───────────────────
+FIX:
+  - ROOT CAUSE FOUND: Windows synchronous pipe handles serialize ALL I/O.
+    ReadFile blocks → WriteFile from another thread ALSO BLOCKS → deadlock.
+    The background reader thread was the problem.
+  - Removed reader thread entirely. All pipe I/O is now synchronous
+    request/response: write request, read response, sequentially.
+    Matches how pipe-test.exe works (which always worked).
+  - Thread-safe via single pipe lock for all I/O operations.
+
+v0.408 (2026-03-23)
+───────────────────
+FIX:
+  - WriteFile buffer: Python bytes can't pass to c_void_p — use
+    ctypes.create_string_buffer() for proper pointer. This was why
+    get_status never reached the Go service (silent write failure).
+  - Appearance mode buttons: null-guard broke ternary operator,
+    all three buttons rendered as black. Fixed comparison logic.
+  - Added partial write detection logging.
+
+v0.407 (2026-03-23)
+───────────────────
+FIX:
+  - Named pipe I/O rewritten to use ctypes (CreateFileW/ReadFile/WriteFile).
+    Python's open() uses the C runtime which doesn't support concurrent
+    read+write on Windows named pipes — caused get_status to always time out,
+    "Not Connected" status, and DPI commands never reaching the service.
+  - Reader thread now uses 4KB buffered ReadFile instead of byte-by-byte read.
+
+v0.406 (2026-03-23)
+───────────────────
+FIX:
+  - "Not Connected" status: _read_initial_state now fires connection callback
+    FIRST using cached status, before any slow HID++ reads.
+  - DPI set not applying: was timing out due to notification flood on MX4.
+SERVICE v0.1.2:
+  - get_status now returns CACHED battery/DPI values instead of live HID++
+    reads. Eliminates timeout on notification-heavy devices (MX4 via Bolt).
+  - ReadBattery/ReadDPI/SetDPI all update the cache on success.
+
+v0.405 (2026-03-23)
+───────────────────
+FIX:
+  - Build crash: indentation error in backend.py broke `ui.backend` import,
+    causing `ModuleNotFoundError` in PyInstaller build. `_run_async` method
+    displaced `set_device_detected_callback` line.
+
+v0.404 (2026-03-23)
+───────────────────
+FIX:
+  - DPI/SmartShift/HiRes/Smooth/Haptic UI hang: all device command slots now
+    run in background threads instead of blocking the Qt main thread. Prevents
+    "Not Responding" when service IPC is slow due to MX4 notification flood.
+SERVICE v0.1.1:
+  - Disabled listenLoop (competes for transport mutex with IPC handler)
+  - Logitech service restore on exit (deferred cleanup)
+  - Separate versioning from app
+
+v0.403 (2026-03-23)
+───────────────────
+FIX:
+  - QMessageBox crash: parent was QQuickWindow, removed parent
+  - QML null warnings: all uiState references now null-safe
+  - SettingsPage.qml: fixed lvalue assignment broken by null-guard replacement
+SERVICE v0.1.1:
+  - Logitech kill: added all missing process names (AppBroker, PluginServiceExt,
+    PluginService.exe) and service names (LogiOptionsPlus). Services are now
+    DISABLED (start=disabled) not just stopped.
+  - Logitech restore: saves original service start types, restores them on
+    service exit/shutdown (deferred cleanup)
+  - DPI/command hang: disabled listenLoop that competed for transport mutex,
+    causing IPC commands to block on MX4's notification flood
+  - Service now has separate versioning from the app (v0.1.1)
+  - Version displayed on startup: `[mastermice-svc] v0.1.1`
+COMPATIBILITY: App v0.403 works with Service v0.1.0 and v0.1.1 (no IPC changes)
+
+v0.402 (2026-03-23)
+───────────────────
+FIX:
+  - QMessageBox crash: parent was QQuickWindow (not QWidget), removed parent
+  - QML null warnings: all uiState.fontFamily/darkMode/appearanceMode references
+    now null-safe with ternary guards
+  - QT_QPA_PLATFORM: only set if not already in environment (fixes "Unknown
+    option" warning on some Qt versions)
+
+v0.401 (2026-03-23)
+───────────────────
+FIX (code review):
+  - engine.py: crash on gesture_button_down event (called non-existent method)
+  - main_qml.py: safe shutdown when Go service active (USE_SERVICE=True)
+  - handler.go: panic on malformed JSON (unsafe type assertion)
+  - handler.go: race condition — added mutex for concurrent IPC clients
+  - device.go: smooth scroll discovery used wrong feature index
+  - device.go: unified battery charging excluded error codes 6-8
+  - events.go: broadcaster no longer holds mutex while closing connections
+  - server.go: handle JSON encode errors instead of silently dropping
+  - engine.py: missing initialization of _dpi_read_cb, _last_battery_event_time
+
 v0.40 (2026-03-23)
 ──────────────────
 ARCHITECTURE:

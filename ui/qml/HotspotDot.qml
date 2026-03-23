@@ -12,7 +12,7 @@ Item {
     id: hotspot
     opacity: isDimmed ? 0.3 : 1.0
     Behavior on opacity { NumberAnimation { duration: 200 } }
-    readonly property var theme: Theme.palette(uiState.darkMode)
+    readonly property var theme: Theme.palette(uiState ? uiState.darkMode : false)
 
     // ── Properties ───────────────────────────────────────────
     property Item imgItem                 // the Image element
@@ -159,12 +159,12 @@ Item {
         height: labelHeight
         radius: 10
         color: isSelected
-               ? (uiState.darkMode
+               ? (uiState ? uiState.darkMode : false
                   ? Qt.rgba(0, 0.83, 0.67, 0.18)
                   : Qt.rgba(0.82, 0.97, 0.93, 0.9))
-               : uiState.darkMode ? "#1e293b" : Qt.rgba(1, 1, 1, 0.92)
+               : uiState ? uiState.darkMode : false ? "#1e293b" : Qt.rgba(1, 1, 1, 0.92)
         border.width: 1
-        border.color: uiState.darkMode ? "#334155" : Qt.rgba(0, 0.83, 0.67, 0.3)
+        border.color: uiState ? uiState.darkMode : false ? "#334155" : Qt.rgba(0, 0.83, 0.67, 0.3)
 
         Behavior on color { ColorAnimation { duration: 200 } }
 
@@ -179,7 +179,7 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.top: parent.top
                 text: hotspot.label
-                font { family: uiState.fontFamily; pixelSize: 13; bold: true }
+                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13; bold: true }
                 color: isSelected ? theme.accent : theme.textPrimary
                 width: parent.width
                 horizontalAlignment: Text.AlignHCenter
@@ -192,7 +192,7 @@ Item {
                 anchors.top: titleText.bottom
                 anchors.topMargin: 2
                 text: hotspot.sublabel
-                font { family: uiState.fontFamily; pixelSize: 11 }
+                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
                 color: theme.textSecondary
                 visible: text !== ""
                 width: parent.width

@@ -26,7 +26,9 @@ sys.path.insert(0, ROOT)
 os.environ["QT_QUICK_CONTROLS_STYLE"] = "Material"
 os.environ["QT_QUICK_CONTROLS_MATERIAL_ACCENT"] = "#00d4aa"
 # Disable Windows 11 Mica/acrylic transparency on the title bar
-os.environ["QT_QPA_PLATFORM"] = "windows:darkmode=0,nodarkframe"
+# Only supported on newer PySide6 builds — skip if Qt version is too old
+if sys.platform == "win32":
+    os.environ.setdefault("QT_QPA_PLATFORM", "windows:darkmode=0,nodarkframe")
 
 _t1 = _time.perf_counter()
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
@@ -342,10 +344,11 @@ def main():
     print(f"[Startup] QML load:         {(_t8-_t7)*1000:7.1f} ms")
     print(f"[Startup] TOTAL to window:  {(_t8-_t0)*1000:7.1f} ms")
 
-    # ── Show Logitech software warning if we killed anything ────
+    # ── Show Logitech software warning if we detected anything ──
+    # (Go service handles the actual kill; we just warn the user)
     if _logi_killed:
         from PySide6.QtWidgets import QMessageBox
-        _warn = QMessageBox(root_window)
+        _warn = QMessageBox()  # no parent — QQuickWindow is not a QWidget
         _warn.setWindowTitle("MasterMice")
         _warn.setIcon(QMessageBox.Icon.Warning)
         _warn.setText("Logitech software was detected and stopped")

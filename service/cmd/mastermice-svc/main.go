@@ -22,7 +22,7 @@ import (
 	msvc "github.com/olafnew/mastermice-svc/internal/service"
 )
 
-const version = "0.1.0"
+const version = "0.1.2"
 
 func main() {
 	// Handle install/uninstall commands
@@ -85,6 +85,7 @@ func runConsole() {
 		log.Fatalf("[ERROR] %v", err)
 	}
 	defer device.Transport.Close()
+	defer hidpp.RestoreLogitechServices() // restore services on exit
 
 	printDeviceState(device)
 
@@ -102,7 +103,10 @@ func runConsole() {
 		}
 	}()
 
-	go listenLoop(device)
+	// NOTE: listenLoop is disabled when IPC is active — it competes for the
+	// transport mutex and causes DPI/SmartShift commands to hang.
+	// Notifications are visible via pipe-test events.
+	// go listenLoop(device)
 
 	fmt.Println("[COMMANDS] dpi <value> | smartshift <threshold> | hires on|off | smooth on|off | battery | status | quit")
 

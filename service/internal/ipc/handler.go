@@ -45,16 +45,12 @@ func (h *Handler) Handle(req *Request) *Response {
 	case "get_status":
 		d := h.Device
 		data := map[string]interface{}{
-			"connected": d.Transport != nil,
-			"model":     d.ModelKey,
-			"name":      d.Name,
-		}
-		if batt, err := d.ReadBattery(); err == nil {
-			data["battery_level"] = batt.Level
-			data["battery_charging"] = batt.Charging
-		}
-		if dpi, err := d.ReadDPI(); err == nil {
-			data["dpi"] = dpi
+			"connected":        d.Transport != nil,
+			"model":            d.ModelKey,
+			"name":             d.Name,
+			"battery_level":    d.CachedBattLevel,
+			"battery_charging": d.CachedBattCharging,
+			"dpi":              d.CachedDPI,
 		}
 		// Connection type from PID
 		switch d.ConnPID {

@@ -173,7 +173,7 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="MasterMice 0.40",
+    name="MasterMice 0.411",
 )
 
 # ── Post-build cleanup ──────────────────────────────────────────────────

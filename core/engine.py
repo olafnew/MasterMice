@@ -253,32 +253,13 @@ class Engine:
 
     def _read_initial_state(self):
         """Read device state from service after connecting."""
-        # Read DPI
-        result = self.svc.read_dpi()
-        if result and "dpi" in result:
-            current = result["dpi"]
-            self.cfg.setdefault("settings", {})["dpi"] = current
-            save_config(self.cfg)
-            if hasattr(self, "_dpi_read_cb") and self._dpi_read_cb:
-                try:
-                    self._dpi_read_cb(current)
-                except Exception:
-                    pass
-
-        # Read battery
-        batt = self.svc.read_battery()
-        if batt and self._battery_read_cb:
-            try:
-                self._battery_read_cb(batt)
-            except Exception:
-                pass
-
-        # Get device info
+        # FIRST: get connection status + device info (fast — uses cached values)
         status = self.svc.get_status()
         if status:
             model = status.get("model", "")
             name = status.get("name", "")
             connected = status.get("connected", False)
+            print(f"[Engine] Service status: connected={connected} model={model}")
             if connected:
                 if self._connection_change_cb:
                     try:
@@ -288,6 +269,28 @@ class Engine:
                 if model and self._device_detected_cb:
                     try:
                         self._device_detected_cb(model, name)
+                    except Exception:
+                        pass
+
+            # Use cached battery/DPI from status (no extra HID++ calls)
+            batt_level = status.get("battery_level", -1)
+            batt_charging = status.get("battery_charging", False)
+            if batt_level >= 0 and self._battery_read_cb:
+                try:
+                    self._battery_read_cb({
+                        "level": batt_level,
+                        "charging": batt_charging,
+                    })
+                except Exception:
+                    pass
+
+            dpi = status.get("dpi", 0)
+            if dpi > 0:
+                self.cfg.setdefault("settings", {})["dpi"] = dpi
+                save_config(self.cfg)
+                if self._dpi_read_cb:
+                    try:
+                        self._dpi_read_cb(dpi)
                     except Exception:
                         pass
 

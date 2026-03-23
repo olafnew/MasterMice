@@ -6,7 +6,7 @@ import "Theme.js" as Theme
 
 Item {
     id: scrollPage
-    readonly property var theme: Theme.palette(uiState.darkMode)
+    readonly property var theme: Theme.palette(uiState ? uiState.darkMode : false)
 
     Flickable {
         id: pageScroll
@@ -36,7 +36,7 @@ Item {
                     Text {
                         text: "Point & Scroll"
                         font {
-                            family: uiState.fontFamily
+                            family: uiState ? uiState.fontFamily : "Segoe UI"
                             pixelSize: 24
                             bold: true
                         }
@@ -46,7 +46,7 @@ Item {
                     Text {
                         text: "Adjust pointer speed and scroll behaviour"
                         font {
-                            family: uiState.fontFamily
+                            family: uiState ? uiState.fontFamily : "Segoe UI"
                             pixelSize: 13
                         }
                         color: scrollPage.theme.textSecondary
@@ -84,12 +84,12 @@ Item {
 
                     Text {
                         text: "Pointer Speed"
-                        font { family: uiState.fontFamily; pixelSize: 18; bold: true }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 18; bold: true }
                         color: scrollPage.theme.textPrimary
                     }
                     Text {
                         text: "Sensor DPI and Windows cursor speed"
-                        font { family: uiState.fontFamily; pixelSize: 12 }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                         color: scrollPage.theme.textSecondary
                     }
 
@@ -108,12 +108,12 @@ Item {
 
                             Text {
                                 text: "DPI (Sensor Speed)"
-                                font { family: uiState.fontFamily; pixelSize: 13; bold: true }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13; bold: true }
                                 color: scrollPage.theme.textPrimary
                             }
                             Text {
                                 text: "Higher = faster tracking. Step: 50 DPI."
-                                font { family: uiState.fontFamily; pixelSize: 10 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
                                 color: scrollPage.theme.textDim
                             }
 
@@ -122,7 +122,7 @@ Item {
                                 spacing: 10
                                 Text {
                                     text: "200"
-                                    font { family: uiState.fontFamily; pixelSize: 11 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
                                     color: scrollPage.theme.textDim
                                 }
                                 Slider {
@@ -138,7 +138,7 @@ Item {
                                 }
                                 Text {
                                     text: backend ? backend.maxDpi : "4000"
-                                    font { family: uiState.fontFamily; pixelSize: 11 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
                                     color: scrollPage.theme.textDim
                                 }
                                 Rectangle {
@@ -148,7 +148,7 @@ Item {
                                         id: dpiLabel
                                         anchors.centerIn: parent
                                         text: (backend ? backend.dpi : 1000) + " DPI"
-                                        font { family: uiState.fontFamily; pixelSize: 13; bold: true }
+                                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13; bold: true }
                                         color: scrollPage.theme.accent
                                     }
                                 }
@@ -161,7 +161,7 @@ Item {
                                 spacing: 8
                                 Text {
                                     text: "Presets:"
-                                    font { family: uiState.fontFamily; pixelSize: 11 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
                                     color: scrollPage.theme.textDim
                                 }
                                 Repeater {
@@ -179,7 +179,7 @@ Item {
                                             id: pText
                                             anchors.centerIn: parent
                                             text: modelData
-                                            font { family: uiState.fontFamily; pixelSize: 12 }
+                                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                                             color: dpiSlider.value === modelData ? scrollPage.theme.bgSidebar : scrollPage.theme.textPrimary
                                         }
                                         MouseArea {
@@ -212,12 +212,12 @@ Item {
 
                             Text {
                                 text: "Windows Cursor Speed"
-                                font { family: uiState.fontFamily; pixelSize: 13; bold: true }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13; bold: true }
                                 color: scrollPage.theme.textPrimary
                             }
                             Text {
                                 text: "System-wide pointer speed (1-20). Affects all mice."
-                                font { family: uiState.fontFamily; pixelSize: 10 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
                                 color: scrollPage.theme.textDim
                             }
                             Row {
@@ -225,7 +225,7 @@ Item {
                                 spacing: 10
                                 Text {
                                     text: "1"
-                                    font { family: uiState.fontFamily; pixelSize: 11 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
                                     color: scrollPage.theme.textDim
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -240,7 +240,7 @@ Item {
                                 }
                                 Text {
                                     text: "20"
-                                    font { family: uiState.fontFamily; pixelSize: 11 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
                                     color: scrollPage.theme.textDim
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -251,7 +251,7 @@ Item {
                                     Text {
                                         anchors.centerIn: parent
                                         text: Math.round(mouseSpeedSlider.value)
-                                        font { family: uiState.fontFamily; pixelSize: 12; bold: true }
+                                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12; bold: true }
                                         color: scrollPage.theme.bgSidebar
                                     }
                                 }
@@ -283,13 +283,13 @@ Item {
 
                     Text {
                         text: "Scroll Wheel"
-                        font { family: uiState.fontFamily; pixelSize: 16; bold: true }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 16; bold: true }
                         color: scrollPage.theme.textPrimary
                     }
 
                     Text {
                         text: "SmartShift and scroll settings (applied directly to the device)"
-                        font { family: uiState.fontFamily; pixelSize: 12 }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                         color: scrollPage.theme.textSecondary
                     }
 
@@ -310,7 +310,7 @@ Item {
                                 spacing: 2
                                 Text {
                                     text: "Scrolling Force"
-                                    font { family: uiState.fontFamily; pixelSize: 13 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                     color: scrollPage.theme.textPrimary
                                 }
                             }
@@ -330,7 +330,7 @@ Item {
 
                             Text {
                                 text: Math.round(forceSlider.value) + "%"
-                                font { family: uiState.fontFamily; pixelSize: 13; bold: true }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13; bold: true }
                                 color: scrollPage.theme.accent
                                 Layout.preferredWidth: 40
                             }
@@ -360,12 +360,12 @@ Item {
                                 spacing: 2
                                 Text {
                                     text: "Smooth Scrolling"
-                                    font { family: uiState.fontFamily; pixelSize: 13 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                     color: scrollPage.theme.textPrimary
                                 }
                                 Text {
                                     text: "Web pages glide across your screen smoothly"
-                                    font { family: uiState.fontFamily; pixelSize: 10 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
                                     color: scrollPage.theme.textDim
                                 }
                             }
@@ -403,12 +403,12 @@ Item {
                                     spacing: 2
                                     Text {
                                         text: "SmartShift"
-                                        font { family: uiState.fontFamily; pixelSize: 13 }
+                                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                         color: scrollPage.theme.textPrimary
                                     }
                                     Text {
                                         text: "Automatically switches to hyper-fast scrolling when you scroll faster"
-                                        font { family: uiState.fontFamily; pixelSize: 10 }
+                                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
                                         color: scrollPage.theme.textDim
                                         width: parent.width
                                         wrapMode: Text.WordWrap
@@ -433,7 +433,7 @@ Item {
 
                                 Text {
                                     text: "Sensitivity"
-                                    font { family: uiState.fontFamily; pixelSize: 12 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                                     color: scrollPage.theme.textDim
                                 }
 
@@ -452,7 +452,7 @@ Item {
 
                                 Text {
                                     text: Math.round(ssSlider.value / 50 * 100) + "%"
-                                    font { family: uiState.fontFamily; pixelSize: 13; bold: true }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13; bold: true }
                                     color: scrollPage.theme.accent
                                     Layout.preferredWidth: 40
                                 }
@@ -483,12 +483,12 @@ Item {
                                 spacing: 2
                                 Text {
                                     text: "Hi-Res Scrolling"
-                                    font { family: uiState.fontFamily; pixelSize: 13 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                     color: scrollPage.theme.textPrimary
                                 }
                                 Text {
                                     text: "Smoother, higher-resolution scroll. Use the speed slider below to tune."
-                                    font { family: uiState.fontFamily; pixelSize: 10 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
                                     color: scrollPage.theme.textDim
                                     width: parent.width
                                     wrapMode: Text.WordWrap
@@ -522,12 +522,12 @@ Item {
 
                             Text {
                                 text: "Hi-Res Scroll Speed"
-                                font { family: uiState.fontFamily; pixelSize: 13; bold: true }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13; bold: true }
                                 color: scrollPage.theme.textPrimary
                             }
                             Text {
                                 text: "Scales the high-resolution scroll events. Default (15) = normal speed."
-                                font { family: uiState.fontFamily; pixelSize: 10 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
                                 color: scrollPage.theme.textDim
                             }
 
@@ -535,7 +535,7 @@ Item {
                                 width: parent.width; spacing: 8
                                 Text {
                                     text: "Slower"
-                                    font { family: uiState.fontFamily; pixelSize: 10 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
                                     color: scrollPage.theme.textDim
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -552,7 +552,7 @@ Item {
                                 }
                                 Text {
                                     text: "Faster"
-                                    font { family: uiState.fontFamily; pixelSize: 10 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
                                     color: scrollPage.theme.textDim
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -561,7 +561,7 @@ Item {
                                     Text {
                                         anchors.centerIn: parent
                                         text: Math.round(hiresSpeedSlider.value)
-                                        font { family: uiState.fontFamily; pixelSize: 11; bold: true }
+                                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11; bold: true }
                                         color: scrollPage.theme.bgSidebar
                                     }
                                 }
@@ -585,12 +585,12 @@ Item {
 
                             Text {
                                 text: "Scroll Speed (Lines per notch)"
-                                font { family: uiState.fontFamily; pixelSize: 13 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                 color: scrollPage.theme.textPrimary
                             }
                             Text {
                                 text: "System-wide setting. Lower values = slower scroll."
-                                font { family: uiState.fontFamily; pixelSize: 10 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
                                 color: scrollPage.theme.textDim
                             }
 
@@ -600,7 +600,7 @@ Item {
 
                                 Text {
                                     text: "1"
-                                    font { family: uiState.fontFamily; pixelSize: 11 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
                                     color: scrollPage.theme.textDim
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -619,7 +619,7 @@ Item {
                                 }
                                 Text {
                                     text: "20"
-                                    font { family: uiState.fontFamily; pixelSize: 11 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
                                     color: scrollPage.theme.textDim
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
@@ -630,7 +630,7 @@ Item {
                                     Text {
                                         anchors.centerIn: parent
                                         text: Math.round(scrollSpeedSlider.value)
-                                        font { family: uiState.fontFamily; pixelSize: 12; bold: true }
+                                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12; bold: true }
                                         color: scrollPage.theme.bgSidebar
                                     }
                                 }
@@ -655,7 +655,7 @@ Item {
 
                             Text {
                                 text: "Scroll Direction"
-                                font { family: uiState.fontFamily; pixelSize: 13; bold: true }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13; bold: true }
                                 color: scrollPage.theme.textPrimary
                             }
 
@@ -663,7 +663,7 @@ Item {
                                 width: parent.width
                                 Text {
                                     text: "Invert vertical scroll"
-                                    font { family: uiState.fontFamily; pixelSize: 12 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                                     color: scrollPage.theme.textPrimary
                                     Layout.fillWidth: true
                                 }
@@ -682,7 +682,7 @@ Item {
                                 width: parent.width
                                 Text {
                                     text: "Invert horizontal scroll"
-                                    font { family: uiState.fontFamily; pixelSize: 12 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                                     color: scrollPage.theme.textPrimary
                                     Layout.fillWidth: true
                                 }
@@ -724,13 +724,13 @@ Item {
 
                     Text {
                         text: "Haptic Feedback"
-                        font { family: uiState.fontFamily; pixelSize: 16; bold: true }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 16; bold: true }
                         color: scrollPage.theme.textPrimary
                     }
 
                     Text {
                         text: "Tactile vibration feedback from the Actions Ring and scroll wheel"
-                        font { family: uiState.fontFamily; pixelSize: 12 }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                         color: scrollPage.theme.textSecondary
                     }
 
@@ -747,7 +747,7 @@ Item {
 
                             Text {
                                 text: "Enable Haptics"
-                                font { family: uiState.fontFamily; pixelSize: 13 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                 color: scrollPage.theme.textPrimary
                                 Layout.fillWidth: true
                             }
@@ -780,7 +780,7 @@ Item {
                                 spacing: 2
                                 Text {
                                     text: "Intensity"
-                                    font { family: uiState.fontFamily; pixelSize: 13 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                     color: scrollPage.theme.textPrimary
                                 }
                             }
@@ -800,7 +800,7 @@ Item {
 
                             Text {
                                 text: Math.round(hapticSlider.value) + "%"
-                                font { family: uiState.fontFamily; pixelSize: 13; bold: true }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13; bold: true }
                                 color: scrollPage.theme.accent
                                 Layout.preferredWidth: 40
                             }
@@ -824,7 +824,7 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             text: "Test Haptics"
-                            font { family: uiState.fontFamily; pixelSize: 12; bold: true }
+                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12; bold: true }
                             color: scrollPage.theme.accent
                         }
                         MouseArea {
@@ -869,7 +869,7 @@ Item {
                         width: parent.width - 28
                         text: "All settings require HID++ communication and will take effect after a short delay."
                         font {
-                            family: uiState.fontFamily
+                            family: uiState ? uiState.fontFamily : "Segoe UI"
                             pixelSize: 12
                         }
                         color: scrollPage.theme.textDim

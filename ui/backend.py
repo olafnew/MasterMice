@@ -6,6 +6,7 @@ Exposes properties, signals, and slots for two-way data binding.
 import os
 import subprocess
 import sys
+import threading
 
 from PySide6.QtCore import QObject, Property, Signal, Slot, Qt
 
@@ -67,6 +68,11 @@ class Backend(QObject):
             engine.set_connection_change_callback(self._onEngineConnectionChange)
             engine.set_battery_callback(self._onEngineBatteryRead)
             engine.set_device_detected_callback(self._onEngineDeviceDetected)
+
+    def _run_async(self, fn, *args):
+        """Run a function in a background thread to avoid blocking the Qt main thread.
+        Used for service IPC calls that may take time."""
+        threading.Thread(target=fn, args=args, daemon=True).start()
 
     @Slot(result=str)
     def checkLogiSoftware(self):
@@ -318,7 +324,7 @@ class Backend(QObject):
         self._cfg.setdefault("settings", {})["dpi"] = value
         save_config(self._cfg)
         if self._engine:
-            self._engine.set_dpi(value)
+            self._run_async(self._engine.set_dpi, value)
         self.settingsChanged.emit()
 
     @Slot(bool)
@@ -372,9 +378,11 @@ class Backend(QObject):
     def setSmartShiftThreshold(self, value):
         if not self._engine:
             return
-        svc = self._engine.svc
-        if svc.connected:
-            svc.set_smart_shift(value)
+        def _do():
+            svc = self._engine.svc
+            if svc.connected:
+                svc.set_smart_shift(value)
+        self._run_async(_do)
         self.settingsChanged.emit()
 
     @Slot(result=bool)
@@ -403,11 +411,13 @@ class Backend(QObject):
     def setHiResScroll(self, value):
         if not self._engine:
             return
-        svc = self._engine.svc
-        if svc.connected:
-            svc.set_hires_wheel(hires=value)
+        def _do():
+            svc = self._engine.svc
+            if svc.connected:
+                svc.set_hires_wheel(hires=value)
             div = self._cfg.get("settings", {}).get("hires_scroll_divider", 15)
             self._engine.update_hires_scroll_state(value, 15, div)
+        self._run_async(_do)
         self.settingsChanged.emit()
 
     @Property(int, notify=settingsChanged)
@@ -464,13 +474,14 @@ class Backend(QObject):
     def setSmartShiftEnabled(self, value):
         if not self._engine:
             return
-        svc = self._engine.svc
-        if svc.connected:
-            # Read current threshold to preserve it
-            current = svc.get_smart_shift()
-            threshold = current.get("threshold", 10) if current else 10
-            force = current.get("force", 50) if current else 50
-            svc.set_smart_shift(threshold, force, value)
+        def _do():
+            svc = self._engine.svc
+            if svc.connected:
+                current = svc.get_smart_shift()
+                threshold = current.get("threshold", 10) if current else 10
+                force = current.get("force", 50) if current else 50
+                svc.set_smart_shift(threshold, force, value)
+        self._run_async(_do)
         self.settingsChanged.emit()
 
     @Slot(result=int)
@@ -489,11 +500,13 @@ class Backend(QObject):
     def setScrollForce(self, value):
         if not self._engine:
             return
-        svc = self._engine.svc
-        if svc.connected:
-            current = svc.get_smart_shift()
-            threshold = current.get("threshold", 10) if current else 10
-            svc.set_smart_shift(threshold, value, True)
+        def _do():
+            svc = self._engine.svc
+            if svc.connected:
+                current = svc.get_smart_shift()
+                threshold = current.get("threshold", 10) if current else 10
+                svc.set_smart_shift(threshold, value, True)
+        self._run_async(_do)
         self.settingsChanged.emit()
 
     # ── Smooth Scrolling ───────────────────────────────────────
@@ -523,9 +536,11 @@ class Backend(QObject):
     def setSmoothScrolling(self, value):
         if not self._engine:
             return
-        svc = self._engine.svc
-        if svc.connected:
-            svc.set_smooth_scroll(value)
+        def _do():
+            svc = self._engine.svc
+            if svc.connected:
+                svc.set_smooth_scroll(value)
+        self._run_async(_do)
         self.settingsChanged.emit()
 
     # ── Haptic Feedback (MX4) ──────────────────────────────────
@@ -550,10 +565,12 @@ class Backend(QObject):
             return
         self._cfg.setdefault("settings", {})["haptic_enabled"] = bool(value)
         save_config(self._cfg)
-        svc = self._engine.svc
-        if svc.connected:
-            intensity = self._cfg.get("settings", {}).get("haptic_intensity", 60)
-            svc.set_haptic(value, intensity)
+        def _do():
+            svc = self._engine.svc
+            if svc.connected:
+                intensity = self._cfg.get("settings", {}).get("haptic_intensity", 60)
+                svc.set_haptic(value, intensity)
+        self._run_async(_do)
         self.settingsChanged.emit()
 
     @Slot(result=int)
@@ -567,9 +584,11 @@ class Backend(QObject):
         v = max(0, min(100, int(value)))
         self._cfg.setdefault("settings", {})["haptic_intensity"] = v
         save_config(self._cfg)
-        svc = self._engine.svc
-        if svc.connected:
-            svc.set_haptic(True, v)
+        def _do():
+            svc = self._engine.svc
+            if svc.connected:
+                svc.set_haptic(True, v)
+        self._run_async(_do)
         self.settingsChanged.emit()
 
     @Slot()
@@ -577,10 +596,12 @@ class Backend(QObject):
         """Send a strong haptic pulse for testing."""
         if not self._engine:
             return
-        svc = self._engine.svc
-        if svc.connected:
-            svc.haptic_trigger(0x08)  # strong pulse
-            print("[Settings] Haptic test pulse sent")
+        def _do():
+            svc = self._engine.svc
+            if svc.connected:
+                svc.haptic_trigger(0x08)
+                print("[Settings] Haptic test pulse sent")
+        self._run_async(_do)
 
     @Property(int, notify=settingsChanged)
     def logMaxKb(self):

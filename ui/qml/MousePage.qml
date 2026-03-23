@@ -12,7 +12,7 @@ import "DeviceModels.js" as DeviceModels
 
 Item {
     id: mousePage
-    readonly property var theme: Theme.palette(uiState.darkMode)
+    readonly property var theme: Theme.palette(uiState ? uiState.darkMode : false)
 
     // ── Profile state ─────────────────────────────────────────
     property string selectedProfile: backend ? backend.activeProfile : "default"
@@ -147,7 +147,7 @@ Item {
                             verticalCenter: parent.verticalCenter
                         }
                         text: "Profiles"
-                        font { family: uiState.fontFamily; pixelSize: 14; bold: true }
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 14; bold: true }
                         color: mousePage.theme.textPrimary
                     }
                 }
@@ -220,7 +220,7 @@ Item {
                                 Text {
                                     text: modelData.label
                                     font {
-                                        family: uiState.fontFamily
+                                        family: uiState ? uiState.fontFamily : "Segoe UI"
                                         pixelSize: 12; bold: true
                                     }
                                     color: selectedProfile === modelData.name
@@ -232,7 +232,7 @@ Item {
                                     text: modelData.apps.length
                                           ? modelData.apps.join(", ")
                                           : "All applications"
-                                    font { family: uiState.fontFamily; pixelSize: 9 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 9 }
                                     color: mousePage.theme.textSecondary
                                     elide: Text.ElideRight
                                     width: leftPanel.width - 70
@@ -274,7 +274,7 @@ Item {
                                 return labels
                             }
                             Material.accent: mousePage.theme.accent
-                            font { family: uiState.fontFamily; pixelSize: 10 }
+                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
                         }
 
                         Rectangle {
@@ -285,7 +285,7 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 text: "+"
-                                font { family: uiState.fontFamily; pixelSize: 16; bold: true }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 16; bold: true }
                                 color: mousePage.theme.bgSidebar
                             }
 
@@ -341,7 +341,7 @@ Item {
 
                                     Text {
                                         text: backend ? backend.mouseModelName : ""
-                                        font { family: uiState.fontFamily; pixelSize: 20; bold: true }
+                                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 20; bold: true }
                                         color: mousePage.theme.textPrimary
                                     }
 
@@ -357,7 +357,7 @@ Item {
                                             id: profBadgeText
                                             anchors.centerIn: parent
                                             text: selectedProfileLabel
-                                            font { family: uiState.fontFamily; pixelSize: 11 }
+                                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
                                             color: mousePage.theme.accent
                                         }
                                     }
@@ -365,7 +365,7 @@ Item {
 
                                 Text {
                                     text: "Click a dot to configure its action"
-                                    font { family: uiState.fontFamily; pixelSize: 12 }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                                     color: mousePage.theme.textSecondary
                                 }
                             }
@@ -393,7 +393,7 @@ Item {
                                     id: delText
                                     anchors.centerIn: parent
                                     text: "Delete Profile"
-                                    font { family: uiState.fontFamily; pixelSize: 10; bold: true }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10; bold: true }
                                     color: mousePage.theme.textPrimary
                                 }
 
@@ -475,7 +475,7 @@ Item {
                                         if (chg && lvl <= 0) return "Chg"
                                         return lvl + "%"
                                     }
-                                    font { family: uiState.fontFamily; pixelSize: 11; bold: true }
+                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11; bold: true }
                                     anchors.verticalCenter: parent.verticalCenter
                                     color: {
                                         var lvl = backend ? backend.batteryLevel : -1
@@ -527,7 +527,7 @@ Item {
                                                 if (ct === "unifying") return "Unifying"
                                                 return ""
                                             }
-                                            font { family: uiState.fontFamily; pixelSize: 10 }
+                                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
                                             color: mousePage.theme.textSecondary
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
@@ -557,7 +557,7 @@ Item {
                                         Text {
                                             text: backend && backend.mouseConnected
                                                   ? "Connected" : "Not Connected"
-                                            font { family: uiState.fontFamily; pixelSize: 11 }
+                                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
                                             color: backend && backend.mouseConnected
                                                    ? mousePage.theme.accent : "#e05555"
                                         }
@@ -585,7 +585,7 @@ Item {
                             id: mouseImg
                             source: mousePage.deviceModel
                                     ? "image://mouseimage/" + encodeURIComponent(mousePage.deviceModel.image)
-                                      + "?dark=" + (uiState.darkMode ? "true" : "false")
+                                      + "?dark=" + (uiState ? uiState.darkMode : false ? "true" : "false")
                                     : ""
                             cache: false
                             fillMode: Image.PreserveAspectFit
@@ -611,7 +611,7 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 text: "Mouse image not available"
-                                font { family: uiState.fontFamily; pixelSize: 13 }
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                 color: mousePage.theme.textSecondary
                             }
                         }
@@ -699,12 +699,12 @@ Item {
                                             text: selectedButtonName
                                                   ? selectedButtonName + " — Choose Action"
                                                   : ""
-                                            font { family: uiState.fontFamily; pixelSize: 15; bold: true }
+                                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 15; bold: true }
                                             color: mousePage.theme.textPrimary
                                         }
                                         Text {
                                             text: "Select what happens when you use this button"
-                                            font { family: uiState.fontFamily; pixelSize: 11 }
+                                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
                                             color: mousePage.theme.textSecondary
                                         }
                                     }
@@ -743,7 +743,7 @@ Item {
 
                                         Text {
                                             text: modelData.category
-                                            font { family: uiState.fontFamily; pixelSize: 10;
+                                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10;
                                                    capitalization: Font.AllUppercase;
                                                    letterSpacing: 1 }
                                             color: mousePage.theme.textDim

@@ -28,8 +28,10 @@ type Device struct {
 	HapticIdx    byte
 	ReprogIdx    byte
 
-	// Cached state
-	CachedBattLevel int // MX3 quirk: cache last known level
+	// Cached state (updated on read, used by get_status to avoid slow HID++)
+	CachedBattLevel    int  // last known battery level (0-100)
+	CachedBattCharging bool // last known charging state
+	CachedDPI          int  // last known DPI value
 }
 
 // DiscoverFeatures uses IRoot to find all features declared in the device profile.
@@ -106,7 +108,9 @@ func (d *Device) ReadDPI() (int, error) {
 		return 0, err
 	}
 	if len(report.Params) >= 3 {
-		return int(report.Params[1])<<8 | int(report.Params[2]), nil
+		dpi := int(report.Params[1])<<8 | int(report.Params[2])
+		d.CachedDPI = dpi
+		return dpi, nil
 	}
 	return 0, fmt.Errorf("DPI response too short")
 }
@@ -129,6 +133,7 @@ func (d *Device) SetDPI(dpi int) error {
 	}
 	if len(report.Params) >= 3 {
 		actual := int(report.Params[1])<<8 | int(report.Params[2])
+		d.CachedDPI = actual
 		fmt.Printf("[DPI] Set to %d (requested %d)\n", actual, dpi)
 	}
 	return nil
@@ -154,11 +159,13 @@ func (d *Device) ReadBattery() (*BatteryStatus, error) {
 		}
 		if len(report.Params) >= 3 {
 			extPower := report.Params[2]
-			// extPower: 0=none, 1-5=charging states, 6+=error
-			return &BatteryStatus{
+			bs := &BatteryStatus{
 				Level:    int(report.Params[0]),
 				Charging: extPower >= 1 && extPower <= 5,
-			}, nil
+			}
+			d.CachedBattLevel = bs.Level
+			d.CachedBattCharging = bs.Charging
+			return bs, nil
 		}
 	} else {
 		// 0x1000: func 0 = get_battery_level → [level, nextLevel, battStatus]
@@ -178,7 +185,9 @@ func (d *Device) ReadBattery() (*BatteryStatus, error) {
 				d.CachedBattLevel = level
 			}
 
-			return &BatteryStatus{Level: level, Charging: charging}, nil
+			bs := &BatteryStatus{Level: level, Charging: charging}
+			d.CachedBattCharging = bs.Charging
+			return bs, nil
 		}
 	}
 	return nil, fmt.Errorf("battery response too short")
