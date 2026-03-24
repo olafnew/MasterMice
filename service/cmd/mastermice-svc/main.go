@@ -22,7 +22,7 @@ import (
 	msvc "github.com/olafnew/mastermice-svc/internal/service"
 )
 
-const version = "0.4.5"
+const version = "0.5.0"
 
 func main() {
 	// Handle service management commands (require admin)

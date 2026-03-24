@@ -27,6 +27,8 @@ const (
 	VK_W               = 0x57
 	VK_X               = 0x58
 	VK_Z               = 0x5A
+	VK_LEFT            = 0x25
+	VK_RIGHT           = 0x27
 )
 
 // Action defines a keyboard shortcut to inject via SendInput.
@@ -43,7 +45,9 @@ var AllActions = map[string]Action{
 	"alt_tab":       {ID: "alt_tab", Label: "Alt + Tab (Switch Windows)", Category: "Navigation", Keys: []uint16{VK_MENU, VK_TAB}},
 	"alt_shift_tab": {ID: "alt_shift_tab", Label: "Alt + Shift + Tab (Switch Windows Reverse)", Category: "Navigation", Keys: []uint16{VK_MENU, VK_SHIFT, VK_TAB}},
 	"win_d":         {ID: "win_d", Label: "Show Desktop (Win+D)", Category: "Navigation", Keys: []uint16{VK_LWIN, VK_D}},
-	"task_view":     {ID: "task_view", Label: "Task View (Win+Tab)", Category: "Navigation", Keys: []uint16{VK_LWIN, VK_TAB}},
+	"task_view":              {ID: "task_view", Label: "Task View (Win+Tab)", Category: "Navigation", Keys: []uint16{VK_LWIN, VK_TAB}},
+	"virtual_desktop_left":  {ID: "virtual_desktop_left", Label: "Virtual Desktop Left (Win+Ctrl+←)", Category: "Navigation", Keys: []uint16{VK_LWIN, VK_CONTROL, VK_LEFT}},
+	"virtual_desktop_right": {ID: "virtual_desktop_right", Label: "Virtual Desktop Right (Win+Ctrl+→)", Category: "Navigation", Keys: []uint16{VK_LWIN, VK_CONTROL, VK_RIGHT}},
 
 	// Browser
 	"browser_back":    {ID: "browser_back", Label: "Browser Back", Category: "Browser", Keys: []uint16{VK_BROWSER_BACK}},
@@ -78,7 +82,7 @@ func IsExtendedKey(vk uint16) bool {
 	case VK_BROWSER_BACK, VK_BROWSER_FORWARD,
 		VK_VOLUME_MUTE, VK_VOLUME_DOWN, VK_VOLUME_UP,
 		VK_MEDIA_NEXT, VK_MEDIA_PREV, VK_MEDIA_STOP, VK_MEDIA_PLAY,
-		VK_LWIN:
+		VK_LWIN, VK_LEFT, VK_RIGHT:
 		return true
 	}
 	return false

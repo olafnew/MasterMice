@@ -65,18 +65,40 @@ func (d *Device) CloseShortHandle() {
 }
 
 // sendShort sends a 7-byte report via HidD_SetOutputReport on the SHORT handle.
+// If the handle is stale (USB sleep/reconnect), automatically reopens and retries once.
 func (d *Device) sendShort(report [7]byte) error {
 	if d.ShortHandle == 0 {
-		return fmt.Errorf("SHORT handle not open")
+		if err := d.OpenShortHandle(); err != nil {
+			return fmt.Errorf("SHORT handle not open and reopen failed: %w", err)
+		}
 	}
+
 	ret, _, _ := procSetOutputReport.Call(
 		uintptr(d.ShortHandle),
 		uintptr(unsafe.Pointer(&report[0])),
 		7,
 	)
-	if ret == 0 {
-		return fmt.Errorf("HidD_SetOutputReport failed")
+	if ret != 0 {
+		return nil // success
 	}
+
+	// Handle may be stale (USB suspend/resume, device reconnect).
+	// Close, reopen, and retry once.
+	fmt.Println("[HAPTIC] SetOutputReport failed — handle may be stale, reopening...")
+	d.CloseShortHandle()
+	if err := d.OpenShortHandle(); err != nil {
+		return fmt.Errorf("SHORT handle reopen failed: %w", err)
+	}
+
+	ret, _, _ = procSetOutputReport.Call(
+		uintptr(d.ShortHandle),
+		uintptr(unsafe.Pointer(&report[0])),
+		7,
+	)
+	if ret == 0 {
+		return fmt.Errorf("HidD_SetOutputReport failed after reopen")
+	}
+	fmt.Println("[HAPTIC] Retry succeeded with new handle")
 	return nil
 }
 

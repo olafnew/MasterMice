@@ -1,12 +1,60 @@
 package input
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"net"
+	"sync"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// cmdPipe is the connection to the service's command pipe for haptic triggers.
+var (
+	cmdPipe   net.Conn
+	cmdPipeMu sync.Mutex
+)
+
+// SetCmdPipe sets the command pipe connection used for haptic feedback.
+func SetCmdPipe(conn net.Conn) {
+	cmdPipeMu.Lock()
+	cmdPipe = conn
+	cmdPipeMu.Unlock()
+}
+
+// triggerHaptic sends a haptic pulse via the service command pipe.
+// Non-blocking — silently fails if pipe is unavailable.
+func triggerHaptic(pulseType int) {
+	cmdPipeMu.Lock()
+	conn := cmdPipe
+	cmdPipeMu.Unlock()
+	if conn == nil {
+		return
+	}
+
+	req := map[string]interface{}{
+		"id":     999,
+		"cmd":    "haptic_trigger",
+		"params": map[string]interface{}{"pulse_type": pulseType},
+	}
+	data, _ := json.Marshal(req)
+	data = append(data, '\n')
+
+	go func() {
+		cmdPipeMu.Lock()
+		defer cmdPipeMu.Unlock()
+		if cmdPipe == nil {
+			return
+		}
+		cmdPipe.Write(data)
+		// Read response (discard)
+		reader := bufio.NewReader(cmdPipe)
+		reader.ReadBytes('\n')
+	}()
+}
 
 var (
 	user32       = windows.NewLazySystemDLL("user32.dll")
@@ -48,6 +96,12 @@ func ExecuteAction(actionID string) bool {
 	}
 
 	sendKeyCombo(action.Keys)
+
+	// Haptic feedback on virtual desktop switch: Light pulse (0x02)
+	if actionID == "virtual_desktop_left" || actionID == "virtual_desktop_right" {
+		triggerHaptic(0x02) // Light pulse
+	}
+
 	return true
 }
 

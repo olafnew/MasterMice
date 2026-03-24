@@ -173,7 +173,7 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="MasterMice 0.49",
+    name="MasterMice 0.50",
 )
 
 # ── Post-build cleanup ──────────────────────────────────────────────────
@@ -218,7 +218,7 @@ print("[MasterMice] Post-build cleanup...")
 _cleanup()
 
 # ── Copy Go binaries into _internal/ (hidden from user view) ─────────
-_dist_ver = "MasterMice 0.49"
+_dist_ver = "MasterMice 0.50"
 _dst_dir = os.path.join("dist", _dist_ver, "_internal")
 for _exe_name in ["mastermice-svc.exe", "mastermice-agent.exe"]:
     _src = os.path.join(ROOT, "service", _exe_name)

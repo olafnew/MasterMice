@@ -1,7 +1,26 @@
 MasterMice Changelog
 ====================
-Forked from: https://github.com/TomBadash/Mouser (commit a96d78b)
-Renamed from "Mouser" to "MasterMice" at v0.31
+
+v0.50 (2026-03-24)
+───────────────────
+FIX:
+  - SHORT handle staleness: auto-reopen on HidD_SetOutputReport failure
+    (fixes haptics stopping after USB sleep/reconnect)
+  - Battery log spam: only log on actual level/charging change
+  - Duplicate agent: kill old mastermice-agent.exe before launching new
+  - AppDetect noise: suppress Task View, Task Switching, ForegroundStaging,
+    Static dialogs, ApplicationManager_DesktopShellWindow
+  - Console hidden by default (debug_mode=False)
+  - Startup log shows both versions: "[Engine] App v0.50, Service v0.5.0"
+NEW:
+  - Virtual desktop switch actions: virtual_desktop_left/right (Win+Ctrl+Arrow)
+  - Haptic Light pulse on virtual desktop switch (via agent → service pipe)
+  - Agent connects to command pipe for haptic triggers
+SERVICE v0.5.0:
+  - Haptic sendShort auto-retry on stale handle
+AGENT v0.2.0:
+  - Command pipe connection for haptic triggers
+  - virtual_desktop_left/right actions with extended key flags
 
 v0.49 (2026-03-24)
 ───────────────────
@@ -516,6 +535,10 @@ WHAT MASTERMICE ADDS OVER UPSTREAM MOUSER (github.com/TomBadash/Mouser):
     - Built-in HID++ diagnostics with progress bar
     - Standalone debug tools: battery_test, mouse_diag_v2, smartshift_test, hid_debug
     - Every setting change logged, every error logged
+
+───────────────────────────────────────────────────────────────────────────────
+Originally forked from: https://github.com/TomBadash/Mouser (commit a96d78b)
+Renamed from "Mouser" to "MasterMice" at v0.31 due to significant architectural differences
 
   UI:
     - 10 callout dots (MX3) / 11 callout dots (MX4) with non-crossing line algorithm

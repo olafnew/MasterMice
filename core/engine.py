@@ -161,14 +161,18 @@ class Engine:
         pass  # gesture_click is single-event, no separate up needed
 
     def _on_battery_event(self, data):
-        """Battery update from service."""
+        """Battery update from service. Only logs on actual change."""
         import time
         self._last_battery_event_time = time.time()
         result = {
             "level": data.get("level", 0),
             "charging": data.get("charging", False),
         }
-        print(f"[Engine] Battery event: {result}")
+        # Only log if battery state actually changed
+        prev = getattr(self, '_last_battery_state', None)
+        if prev != (result["level"], result["charging"]):
+            print(f"[Engine] Battery: {result['level']}% {'(charging)' if result['charging'] else ''}")
+            self._last_battery_state = (result["level"], result["charging"])
 
         # Haptic feedback on charge state change
         new_charging = result.get("charging", False)
@@ -266,7 +270,7 @@ class Engine:
         self._app_detector.start()
         self._svc_watchdog_stop = threading.Event()
 
-        EXPECTED_SVC_VERSION = "0.4.5"
+        EXPECTED_SVC_VERSION = "0.5.0"
 
         # Connect to the Go service (auto-launch if needed)
         def _connect_service():
@@ -286,7 +290,8 @@ class Engine:
                     # Update SCM binPath if service is installed (points to old exe)
                     self._update_scm_path()
                 else:
-                    print(f"[Engine] Service v{svc_ver} OK")
+                    from core.config import APP_VERSION
+                    print(f"[Engine] App v{APP_VERSION}, Service v{svc_ver}")
                     self.service_version = svc_ver
                     self._read_initial_state()
                     self._start_watchdog()
@@ -378,10 +383,11 @@ class Engine:
                         for attempt in range(15):
                             time.sleep(1)
                             if self.svc.connect():
-                                print(f"[Engine] Service restarted (attempt {attempt + 1})")
                                 h = self.svc.health()
-                                if h:
-                                    self.service_version = h.get("version", "")
+                                svc_v = h.get("version", "?") if h else "?"
+                                self.service_version = svc_v if h else ""
+                                from core.config import APP_VERSION
+                                print(f"[Engine] Service restarted — App v{APP_VERSION}, Service v{svc_v}")
                                 self._read_initial_state()
                                 break
                         else:
@@ -507,9 +513,19 @@ class Engine:
         return None
 
     def _find_and_launch_service(self):
-        """Find and launch mastermice-svc.exe + mastermice-agent.exe."""
+        """Find and launch mastermice-svc.exe + mastermice-agent.exe.
+        Kills any existing agent first to prevent duplicate instances."""
         import sys, os, subprocess
         CREATE_NO_WINDOW = 0x08000000
+
+        # Kill any existing agent to prevent duplicates
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "mastermice-agent.exe"],
+                timeout=3, capture_output=True, creationflags=CREATE_NO_WINDOW,
+            )
+        except Exception:
+            pass
 
         if getattr(sys, "frozen", False):
             app_dir = os.path.dirname(sys.executable)

@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	version        = "0.1.0"
+	version        = "0.2.0"
 	mainPipeName   = `\\.\pipe\MasterMice`
 	eventPipeName  = `\\.\pipe\MasterMice-events`
 )
@@ -64,6 +64,24 @@ func main() {
 		os.Exit(1)
 	}
 	defer eventConn.Close()
+
+	// Connect to command pipe for sending haptic triggers
+	var cmdConn net.Conn
+	{
+		timeout := 2 * time.Second
+		c, err := winio.DialPipe(mainPipeName, &timeout)
+		if err == nil {
+			cmdConn = c
+			fmt.Println("[Agent] Connected to command pipe (for haptic triggers)")
+		} else {
+			fmt.Printf("[WARN] Command pipe unavailable: %v — haptic feedback on actions disabled\n", err)
+		}
+	}
+	if cmdConn != nil {
+		defer cmdConn.Close()
+	}
+	// Make cmdConn accessible to action execution
+	input.SetCmdPipe(cmdConn)
 
 	// Handle Ctrl+C
 	sig := make(chan os.Signal, 1)

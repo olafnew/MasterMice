@@ -3,7 +3,7 @@ Configuration manager — loads/saves button mappings to a JSON file.
 Supports per-application profiles (for future use).
 """
 
-APP_VERSION = "0.49"
+APP_VERSION = "0.50"
 APP_NAME = "MasterMice"
 
 import json

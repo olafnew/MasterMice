@@ -157,7 +157,10 @@ if sys.platform == "win32":
                 # Suppress noisy transient windows entirely
                 _NOISY = ("OperationStatusWindow", "TopLevelWindowForOverflowXamlIsland",
                           "ForegroundStaging", "ProxyModalWindow",
-                          "ApplicationManager_DesktopShellWindow")
+                          "ApplicationManager_DesktopShellWindow",
+                          "XamlExplorerHostIslandWindow",  # Task View / Task Switching
+                          "Static",  # Window Dialog popups
+                          )
                 if wc in _NOISY:
                     return None  # keep last profile, no log
                 title = _get_window_title(hwnd)
