@@ -72,6 +72,10 @@ var AllActions = map[string]Action{
 	"next_track":  {ID: "next_track", Label: "Next Track", Category: "Media", Keys: []uint16{VK_MEDIA_NEXT}},
 	"prev_track":  {ID: "prev_track", Label: "Previous Track", Category: "Media", Keys: []uint16{VK_MEDIA_PREV}},
 
+	// Gestures (default swipe actions)
+	"minimize_all": {ID: "minimize_all", Label: "Minimize All (Win+D)", Category: "Navigation", Keys: []uint16{VK_LWIN, VK_D}},
+	"restore_all":  {ID: "restore_all", Label: "Restore All (Win+D)", Category: "Navigation", Keys: []uint16{VK_LWIN, VK_D}},
+
 	// Other
 	"none": {ID: "none", Label: "Do Nothing (Pass-through)", Category: "Other", Keys: nil},
 }

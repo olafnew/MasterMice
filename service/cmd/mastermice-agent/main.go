@@ -13,10 +13,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"time"
 
 	winio "github.com/Microsoft/go-winio"
@@ -26,8 +28,94 @@ import (
 	"github.com/olafnew/mastermice-svc/internal/input"
 )
 
+// ── Gesture state machine ─────────────────────────────────────
+// Tracks hold+move+release for gesture buttons (gesture, haptic_panel).
+// When a gesture-enabled button is pressed:
+//   1. Start accumulating dx/dy from gesture_move events
+//   2. On release: if movement > threshold → fire swipe action, else fire click action
+type gestureState struct {
+	mu        sync.Mutex
+	active    bool       // currently tracking a gesture
+	button    string     // which button started it ("gesture" or "haptic_panel")
+	startTime time.Time
+	totalDX   int
+	totalDY   int
+}
+
+var gesture = &gestureState{}
+
 const (
-	version        = "0.2.0"
+	gestureThreshold = 300   // minimum total movement to count as swipe (in raw units)
+	gestureDeadzone  = 0.35  // max cross-axis ratio before rejecting as diagonal
+)
+
+func (g *gestureState) start(button string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.active = true
+	g.button = button
+	g.startTime = time.Now()
+	g.totalDX = 0
+	g.totalDY = 0
+}
+
+func (g *gestureState) accumulate(dx, dy int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.active {
+		return
+	}
+	g.totalDX += dx
+	g.totalDY += dy
+}
+
+// finish returns the detected swipe direction or "click" if no significant movement.
+// Returns: "left", "right", "up", "down", or "click"
+func (g *gestureState) finish() (button string, direction string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.active {
+		return "", "click"
+	}
+	g.active = false
+	btn := g.button
+
+	absDX := math.Abs(float64(g.totalDX))
+	absDY := math.Abs(float64(g.totalDY))
+	dominant := math.Max(absDX, absDY)
+	cross := math.Min(absDX, absDY)
+
+	// Not enough movement → click
+	if dominant < gestureThreshold {
+		return btn, "click"
+	}
+
+	// Too diagonal → click (cross-axis must be < 35% of dominant)
+	if dominant > 0 && cross/dominant > gestureDeadzone {
+		return btn, "click"
+	}
+
+	// Determine direction
+	if absDX > absDY {
+		if g.totalDX > 0 {
+			return btn, "right"
+		}
+		return btn, "left"
+	}
+	if g.totalDY > 0 {
+		return btn, "down"
+	}
+	return btn, "up"
+}
+
+func (g *gestureState) isActive() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.active
+}
+
+const (
+	version        = "0.3.0"
 	mainPipeName   = `\\.\pipe\MasterMice`
 	eventPipeName  = `\\.\pipe\MasterMice-events`
 )
@@ -148,7 +236,9 @@ func handleEvent(cfg *config.Config, line string) {
 	case "button_event":
 		handleButtonEvent(cfg, data)
 	case "gesture_move":
-		// TODO Phase 4: accumulate gesture deltas
+		dx, _ := data["dx"].(float64)
+		dy, _ := data["dy"].(float64)
+		gesture.accumulate(int(dx), int(dy))
 	case "config_changed":
 		handleConfigChanged(cfg, data)
 	case "battery_update":
@@ -167,12 +257,67 @@ func handleButtonEvent(cfg *config.Config, data map[string]interface{}) {
 	button, _ := data["button"].(string)
 	state, _ := data["state"].(string)
 
-	if state != "down" && state != "click" {
-		return // only act on press, not release
+	mappings := cfg.GetActiveMappings()
+
+	// Check if this button has gesture mappings (gesture_left, gesture_right, etc.)
+	hasGestures := false
+	for _, dir := range []string{"_left", "_right", "_up", "_down"} {
+		key := button + dir  // e.g. "gesture_left", "haptic_panel_left"
+		if a, ok := mappings[key]; ok && a != "" && a != "none" {
+			hasGestures = true
+			break
+		}
+	}
+	// Gesture button always has gestures by default
+	if button == "gesture" {
+		hasGestures = true
 	}
 
-	// Look up action in current profile mappings
-	mappings := cfg.GetActiveMappings()
+	if hasGestures {
+		// Gesture-enabled button: use hold+move+release detection
+		if state == "down" {
+			gesture.start(button)
+			return // don't execute action yet — wait for release
+		}
+		if state == "up" {
+			btn, direction := gesture.finish()
+			if btn == "" {
+				return
+			}
+
+			var actionID string
+			if direction == "click" {
+				// No significant movement → fire click action
+				actionID = mappings[button]
+			} else {
+				// Swipe detected → fire directional action
+				swipeKey := button + "_" + direction // e.g. "gesture_right"
+				actionID = mappings[swipeKey]
+				if actionID == "" || actionID == "none" {
+					// No directional mapping → fall back to click
+					actionID = mappings[button]
+				}
+			}
+
+			if actionID == "" || actionID == "none" {
+				return
+			}
+
+			if direction == "click" {
+				fmt.Printf("[Agent] Gesture %s click → %s\n", btn, actionID)
+			} else {
+				fmt.Printf("[Agent] Gesture %s swipe %s → %s\n", btn, direction, actionID)
+			}
+			input.ExecuteAction(actionID)
+			return
+		}
+	}
+
+	// Non-gesture button: execute immediately on press
+	if state != "down" && state != "click" {
+		return
+	}
+
 	actionID, ok := mappings[button]
 	if !ok || actionID == "" || actionID == "none" {
 		return

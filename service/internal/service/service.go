@@ -188,54 +188,59 @@ func deviceLoopWithReconnect(ctx context.Context, connectFn func() (*hidpp.Devic
 			}
 		}
 
-		// Handle REPROG_V4 button events
+		// Handle REPROG_V4 notifications
+		// Protocol (from Wireshark captures):
+		//   func=0: button event notification — params=[CID_hi, CID_lo, flags, ...]
+		//   func=1: divertedRawXY — params=[dx_hi, dx_lo, dy_hi, dy_lo] (NO CID prefix!)
+		//   func=2: divertedButtons — params=[CID_hi, CID_lo, pressed(0/1), ...]
+		//   func=3: divert config response
 		if device.ReprogIdx != 0 && report.FeatIdx == device.ReprogIdx {
-			if len(report.Params) >= 3 {
-				cid := uint16(report.Params[0])<<8 | uint16(report.Params[1])
-				flags := report.Params[2]
-				pressed := (flags & 0x01) != 0
+			switch report.Func {
 
-				var buttonName string
-				switch cid {
-				case 0x01A0: // Actions Ring / Haptic Sense Panel
-					buttonName = "haptic_panel"
-				case 0x00C3: // Gesture button
-					buttonName = "gesture"
-				}
+			case 0, 2:
+				// Button press/release events (both func=0 and func=2 carry CID + flags)
+				if len(report.Params) >= 3 {
+					cid := uint16(report.Params[0])<<8 | uint16(report.Params[1])
+					flags := report.Params[2]
+					pressed := (flags & 0x01) != 0
 
-				if buttonName != "" {
-					state := "up"
-					if pressed {
-						state = "down"
+					var buttonName string
+					switch cid {
+					case 0x01A0:
+						buttonName = "haptic_panel"
+					case 0x00C3:
+						buttonName = "gesture"
 					}
-					evtData := map[string]interface{}{
-						"button": buttonName,
-						"state":  state,
-						"cid":    fmt.Sprintf("0x%04X", cid),
-					}
-					handler.PushEvent("button_event", evtData)
-					if eventPipe != nil {
-						eventPipe.Push("button_event", evtData)
-					}
-				}
-			}
 
-			// Raw XY reports for gesture swipe detection (func=2 on REPROG_V4)
-			// These contain movement delta while gesture button is held
-			if report.Func == 2 && len(report.Params) >= 4 {
-				// Params: [CID_hi, CID_lo, dx_hi, dx_lo, dy_hi, dy_lo, ...]
-				cid := uint16(report.Params[0])<<8 | uint16(report.Params[1])
-				if cid == 0x00C3 && len(report.Params) >= 6 {
-					dx := int16(uint16(report.Params[2])<<8 | uint16(report.Params[3]))
-					dy := int16(uint16(report.Params[4])<<8 | uint16(report.Params[5]))
-					if dx != 0 || dy != 0 {
+					if buttonName != "" {
+						state := "up"
+						if pressed {
+							state = "down"
+						}
 						evtData := map[string]interface{}{
+							"button": buttonName,
+							"state":  state,
+							"cid":    fmt.Sprintf("0x%04X", cid),
+						}
+						handler.PushEvent("button_event", evtData)
+						if eventPipe != nil {
+							eventPipe.Push("button_event", evtData)
+						}
+					}
+				}
+
+			case 1:
+				// divertedRawXY — raw mouse movement while gesture button held
+				// Params: [dx_hi, dx_lo, dy_hi, dy_lo] (signed 16-bit big-endian)
+				// NO CID prefix — the device sends raw sensor data directly
+				if len(report.Params) >= 4 {
+					dx := int16(uint16(report.Params[0])<<8 | uint16(report.Params[1]))
+					dy := int16(uint16(report.Params[2])<<8 | uint16(report.Params[3]))
+					if eventPipe != nil {
+						eventPipe.Push("gesture_move", map[string]interface{}{
 							"dx": int(dx),
 							"dy": int(dy),
-						}
-						if eventPipe != nil {
-							eventPipe.Push("gesture_move", evtData)
-						}
+						})
 					}
 				}
 			}
