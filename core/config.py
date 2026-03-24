@@ -3,7 +3,7 @@ Configuration manager — loads/saves button mappings to a JSON file.
 Supports per-application profiles (for future use).
 """
 
-APP_VERSION = "0.411"
+APP_VERSION = "0.49"
 APP_NAME = "MasterMice"
 
 import json
@@ -147,7 +147,7 @@ BUTTON_TO_EVENTS = {
 }
 
 DEFAULT_CONFIG = {
-    "version": 4,
+    "version": 5,
     "active_profile": "default",
     "profiles": {
         "default": {
@@ -160,7 +160,7 @@ DEFAULT_CONFIG = {
                 "scroll_down": "none",
                 "middle": "none",
                 "mode_shift": "none",
-                "gesture": "none",
+                "gesture": "task_view",
                 "gesture_left": "none",
                 "gesture_right": "none",
                 "gesture_up": "none",
@@ -168,7 +168,7 @@ DEFAULT_CONFIG = {
                 "xbutton1": "none",
                 "xbutton2": "none",
                 "thumb_wheel": "none",
-                "haptic_panel": "none",
+                "haptic_panel": "task_view",
             },
         }
     },
@@ -340,6 +340,16 @@ def _migrate(cfg):
             if mappings.get("xbutton2") == "alt_tab":
                 mappings["xbutton2"] = "none"
         cfg["version"] = 4
+
+    if version < 5:
+        # v4 → v5: set haptic_panel and gesture defaults to task_view
+        for pdata in cfg.get("profiles", {}).values():
+            mappings = pdata.get("mappings", {})
+            if mappings.get("haptic_panel") == "none":
+                mappings["haptic_panel"] = "task_view"
+            if mappings.get("gesture") == "none":
+                mappings["gesture"] = "task_view"
+        cfg["version"] = 5
 
     cfg.setdefault("settings", {})
     cfg["settings"].setdefault("debug_mode", False)

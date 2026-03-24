@@ -14,6 +14,8 @@ type DeviceProfile struct {
 	SmartShiftForce  bool   // has force parameter
 	HasHaptics       bool
 	HapticFeatureID  uint16
+	HasButtonSens    bool   // MX4 button press sensitivity
+	ButtonSensFeatID uint16
 	DPIMax           int
 	DPIFlag          byte
 	SmoothScrollOn   byte // value to write for "smooth scroll ON"
@@ -36,6 +38,8 @@ var Profiles = map[string]*DeviceProfile{
 		SmartShiftForce:  false,
 		HasHaptics:       false,
 		HapticFeatureID:  0,
+		HasButtonSens:    false,
+		ButtonSensFeatID: 0,
 		DPIMax:           4000,
 		DPIFlag:          0x00,
 		SmoothScrollOn:   0x03,
@@ -56,6 +60,8 @@ var Profiles = map[string]*DeviceProfile{
 		SmartShiftForce:  true,
 		HasHaptics:       true,
 		HapticFeatureID:  FeatHaptic,
+		HasButtonSens:    true,
+		ButtonSensFeatID: FeatButtonSens,
 		DPIMax:           8000,
 		DPIFlag:          0x01,
 		SmoothScrollOn:   0x01,

@@ -3,6 +3,188 @@ MasterMice Changelog
 Forked from: https://github.com/TomBadash/Mouser (commit a96d78b)
 Renamed from "Mouser" to "MasterMice" at v0.31
 
+v0.49 (2026-03-24)
+───────────────────
+MAJOR: Go agent (mastermice-agent.exe) — handles button actions in user session
+  - Instant haptic panel + gesture button response (no IPC round-trip)
+  - SendInput for all 22 actions (navigation, editing, browser, media)
+  - Reads button mappings from config.json
+  - Connects to service via event pipe (\\.\pipe\MasterMice-events)
+  - WH_MOUSE_LL hook for xbutton1/2, middle click, scroll intercept
+  - Foreground app detection + profile auto-switching
+  - Gesture swipe detection (threshold/deadzone/timeout/cooldown)
+  - Launched automatically by the Python app alongside the service
+SERVICE v0.4.5:
+  - Event pipe server (\\.\pipe\MasterMice-events) for real-time push
+  - CID 0x00C3 (gesture) + CID 0x01A0 (haptic panel) detection
+  - Raw XY reports for gesture swipe tracking
+  - Logitech kill: wildcard detection (catches all logioptions*/logiplugin*)
+  - Battery charging fix: check status byte (1-4), not just extPower
+FIX:
+  - Button sensitivity protocol: correct format [0x00, hi, lo, extra_hi, extra_lo]
+    with companion bytes from Wireshark captures
+  - Charging indicator: MX4 via Bolt reports charging in status byte, not extPower
+  - Error code parsing: Params[1] is the real error code, not Params[0]
+
+v0.481 (2026-03-24)
+───────────────────
+FIX:
+  - Button sensitivity protocol: Wireshark captures revealed each preset needs
+    a 5-byte command [0x00, preset_hi, preset_lo, extra_hi, extra_lo]. The extra
+    bytes are per-preset companion values from Logitech Options+. All 4 presets
+    confirmed: Light(0x0F3E/0x261B), Medium(0x130E/0x2FA3), Hard(0x16DE/0x392B),
+    Firm(0x1958/0x3F5C).
+  - GetButtonSensitivity: was using func=0 (capabilities), now uses func=2 (read)
+  - Service version badge: now shows in Settings header after reconnect
+  - Debug console: merged into Logging section as Show/Hide Console button
+  - Haptic Sense Panel: removed "Not yet supported", enabled as normal button
+    with default action = Task View (Win+Tab)
+  - Charging indicator: added battery poll every 30s in watchdog (sync pipe can't
+    receive push events)
+  - AppDetect: suppressed OperationStatusWindow, ForegroundStaging, etc.
+SERVICE v0.4.2:
+  - Button sensitivity SET: [0x00, hi, lo, extra_hi, extra_lo] format
+  - Button sensitivity GET: func=2 (was func=0)
+  - Error code parsing: Params[1] is the real error (was Params[0])
+
+v0.48 (2026-03-24)
+───────────────────
+NEW:
+  - Haptic charge notification: Buzz 0.5s ×3 when charging plugged in,
+    Triple pulse when unplugged. Respects haptic_enabled setting.
+  - Debug console toggle in Settings (shows/hides console window)
+  - Thumb button test area: square indicator lights up on Back/Forward press
+  - Default gesture button mapping: Win+Tab (Task View) for all mice
+  - Dual version display: "App v0.48" + "Service v0.4.1" badges in Settings
+FIX:
+  - Error code parsing: was reading funcSW byte (Params[0]) instead of actual
+    error code (Params[1]) from HID++ error reports. All error messages now
+    show the real error code.
+  - Button sensitivity: padded params to full 16 bytes (may fix HID++ errors)
+  - AppDetect: suppressed OperationStatusWindow, TopLevelWindowForOverflow,
+    ForegroundStaging, ProxyModalWindow, ApplicationManager spam entirely
+  - Appearance mode buttons: changed from bgSubtle to bgCard for better contrast
+SERVICE v0.4.1:
+  - Fixed error code extraction (Params[1] not Params[0])
+  - Button sensitivity params padded to 16 bytes
+
+v0.47 (2026-03-24)
+───────────────────
+NEW:
+  - Button Sensitivity UI: Light/Medium/Hard/Firm presets for MX4 thumb buttons.
+    Feature 0x19C0, visible only when MX4 connected.
+  - Dual version display in Settings: "App 0.47" + "Service 0.4.0" badges
+  - Re-install Service button in Settings
+SERVICE v0.4.0:
+  - Fix: error matching no longer greedy. Reconstructs original feature index
+    from HID++ error report — only matches errors for the requested feature.
+    Eliminates spurious 0x04 errors on SmartShift/DPI.
+  - Auto-reconnect: service detects USB disconnect, retries every 5s.
+    Broadcasts device_connected/device_disconnected events to Python.
+  - Battery polling: reads battery every 5 min (skips if device push event
+    within last 60s). Broadcasts battery_update events.
+  - Button sensitivity: get/set via IPC (get_button_sensitivity, set_button_sensitivity)
+  - Handler: SetDevice/GetDevice for reconnect, nil-safe device access
+
+v0.46 (2026-03-24)
+───────────────────
+NEW:
+  - Service watchdog: background thread pings service every 5s. If service
+    dies, UI immediately shows "Not Connected" and auto-restarts it.
+FIX:
+  - UAC elevation: rewrote using ShellExecuteExW with proper ctypes Structure.
+    ShellExecuteW was failing (ret=5) because argtypes weren't set, causing
+    garbage pointers on 64-bit Python. PowerShell approach also failed because
+    CREATE_NO_WINDOW prevented UAC dialog.
+SERVICE v0.3.1:
+  - Version field added to health response (enables version mismatch detection)
+
+v0.453 (2026-03-24)
+───────────────────
+FIX:
+  - Robust service lifecycle: 3-strategy kill (sc stop → taskkill → PowerShell),
+    waits up to 4s for named pipe to release before launching new service.
+  - Version mismatch auto-recovery: empty version from old service now detected
+    and killed. SCM binPath updated to current exe path after kill.
+  - UAC: switched to PowerShell Start-Process -Verb RunAs for reliable prompt.
+  - Increased service connect retry from 10s to 15s for slow systems.
+
+v0.452 (2026-03-24)
+───────────────────
+FIX:
+  - UAC prompt: switched from ShellExecuteW (returned 5/access denied) to
+    PowerShell `Start-Process -Verb RunAs -Wait` which reliably shows UAC.
+  - Version check: empty version from old service now treated as outdated
+    (was incorrectly passing as "OK").
+  - Close-to-tray: removed broken `closing` signal handler (TypeError with
+    QQuickCloseEvent). Using `setQuitOnLastWindowClosed(False)` instead.
+
+v0.45 (2026-03-24)
+───────────────────
+NEW:
+  - Proper Windows SCM service: "Run on Startup" toggle installs/uninstalls
+    the service via `sc create/delete` with UAC elevation prompt.
+  - Service self-installs: `mastermice-svc.exe install` (admin) creates the
+    Windows service with auto-start, recovery policy (restart on failure),
+    and starts it immediately.
+  - Service self-uninstalls: `mastermice-svc.exe uninstall` stops and removes.
+  - CLI flags: --install, --uninstall, --start, --stop, --status, --version
+  - Auto-launch: app launches service as background process if SCM service
+    not installed and pipe not available.
+  - Debug console: hidden by default, toggled via Debug Mode in Settings.
+  - Service exe hidden in _internal/ — user only sees MasterMice.exe
+  - Minimize to tray: closing the window hides to system tray instead of
+    quitting. Use "Quit MasterMice" from tray menu to fully exit.
+SERVICE v0.3.0:
+  - Full SCM integration: runs as proper Windows service when installed
+  - Auto-detect SCM vs console mode (svc.IsWindowsService)
+  - install/uninstall/start/stop/status CLI commands
+  - Recovery policy: restart after 5s/10s/30s on failure
+
+v0.44 (2026-03-24)
+───────────────────
+NEW:
+  - Auto-launch service: app automatically starts mastermice-svc.exe on
+    launch if not already running. No manual service start needed.
+  - Service hidden in _internal/ — user only sees MasterMice.exe
+  - Run on Startup: installs as Windows service via sc create (UAC prompt)
+    with HKCU\Run fallback if user declines admin
+  - Debug console: console hidden by default, toggled via Debug Mode in
+    Settings. Shows/hides console window at runtime.
+FIX:
+  - Service not starting on app launch (was just connecting, not launching)
+
+v0.431 (2026-03-24)
+───────────────────
+NEW:
+  - mastermice-svc.exe now bundled inside the dist folder alongside MasterMice.exe.
+    Single download — no separate service binary needed.
+  - Run on Startup: toggle in Settings to register service in Windows startup
+    (HKCU\Run registry). Looks for svc.exe in same folder as app.
+  - Automatic Updates section (grayed out, "Coming soon" badge)
+  - Haptic custom bit mixer: toggle Nudge/Light/Tick/Strong bits + Play button
+  - Haptic sequence builder: 5 preset sequences (Heartbeat, Alert, Buzz 0.5s,
+    SOS, Ramp Up) with configurable delays and repeats
+  - playHapticSequence backend slot for arbitrary pulse sequences
+FIX:
+  - Scroll force setting now persisted to config (was lost on restart)
+  - Haptic motor auto-enabled on connect with saved config (was disabled
+    until user manually toggled enable/disable in UI)
+
+v0.42 (2026-03-24)
+───────────────────
+NEW:
+  - Haptic Feedback UI: new section in Point & Scroll page (MX4 only)
+  - 8 pulse pattern test buttons: Nudge, Light, Tick, Strong, Buzz, Burst,
+    Triple, Double-Buzz — discovered via deep protocol probing
+  - Enable/disable toggle + intensity slider (0-100%)
+  - testHapticPulse(int) backend slot for arbitrary pulse type codes
+SERVICE v0.2.0:
+  - Haptic motor support via SHORT handle (HidD_SetOutputReport)
+  - Feature ID corrected: 0x19B0 (was 0xB019 — byte-swap error)
+  - set_haptic and haptic_trigger IPC commands
+  - SHORT handle auto-opened on feature discovery (MX4 only)
+
 v0.411 (2026-03-24)
 ───────────────────
 FIX:

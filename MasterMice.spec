@@ -173,7 +173,7 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="MasterMice 0.411",
+    name="MasterMice 0.49",
 )
 
 # ── Post-build cleanup ──────────────────────────────────────────────────
@@ -216,4 +216,16 @@ def _cleanup():
 
 print("[MasterMice] Post-build cleanup...")
 _cleanup()
+
+# ── Copy Go binaries into _internal/ (hidden from user view) ─────────
+_dist_ver = "MasterMice 0.49"
+_dst_dir = os.path.join("dist", _dist_ver, "_internal")
+for _exe_name in ["mastermice-svc.exe", "mastermice-agent.exe"]:
+    _src = os.path.join(ROOT, "service", _exe_name)
+    if os.path.isfile(_src) and os.path.isdir(_dst_dir):
+        shutil.copy2(_src, os.path.join(_dst_dir, _exe_name))
+        print(f"  [bundle] Copied {_exe_name} to _internal/")
+    else:
+        print(f"  [bundle] WARNING: {_src} not found — {_exe_name} not bundled!")
+
 print("[MasterMice] Cleanup done.")

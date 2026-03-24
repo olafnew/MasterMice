@@ -22,24 +22,60 @@ import (
 	msvc "github.com/olafnew/mastermice-svc/internal/service"
 )
 
-const version = "0.1.2"
+const version = "0.4.5"
 
 func main() {
-	// Handle install/uninstall commands
+	// Handle service management commands (require admin)
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "install":
+		case "install", "--install":
+			fmt.Printf("[mastermice-svc] v%s — installing service\n", version)
 			if err := msvc.Install(); err != nil {
-				log.Fatalf("[ERROR] %v", err)
+				fmt.Printf("[ERROR] %v\n", err)
+				os.Exit(1)
 			}
-			return
-		case "uninstall", "remove":
+			fmt.Println("[OK] Service installed and started")
+			os.Exit(0)
+
+		case "uninstall", "remove", "--uninstall", "--remove":
+			fmt.Printf("[mastermice-svc] v%s — uninstalling service\n", version)
 			if err := msvc.Uninstall(); err != nil {
-				log.Fatalf("[ERROR] %v", err)
+				fmt.Printf("[ERROR] %v\n", err)
+				os.Exit(1)
 			}
-			return
-		case "debug":
+			fmt.Println("[OK] Service removed")
+			os.Exit(0)
+
+		case "start", "--start":
+			if err := msvc.StartService(); err != nil {
+				fmt.Printf("[ERROR] %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("[OK] Service started")
+			os.Exit(0)
+
+		case "stop", "--stop":
+			if err := msvc.StopService(); err != nil {
+				fmt.Printf("[ERROR] %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("[OK] Service stopped")
+			os.Exit(0)
+
+		case "status", "--status":
+			if msvc.IsInstalled() {
+				fmt.Println("installed")
+			} else {
+				fmt.Println("not-installed")
+			}
+			os.Exit(0)
+
+		case "debug", "--debug":
 			hidpp.Debug = true
+
+		case "version", "--version":
+			fmt.Printf("mastermice-svc v%s\n", version)
+			os.Exit(0)
 		}
 	}
 
@@ -48,16 +84,15 @@ func main() {
 	}
 	defer hid.Exit()
 
-	// Windows service mode
+	// Windows service mode (launched by SCM)
 	if msvc.IsWindowsService() {
-		fmt.Println("[mastermice-svc] Starting as Windows service")
-		if err := msvc.RunService(fullConnect); err != nil {
+		if err := msvc.RunService(fullConnect, version); err != nil {
 			log.Fatalf("[SVC] %v", err)
 		}
 		return
 	}
 
-	// Console mode
+	// Console mode (launched directly or by the app)
 	fmt.Printf("[mastermice-svc] v%s — console mode\n", version)
 	runConsole()
 }
@@ -94,19 +129,23 @@ func runConsole() {
 	defer cancel()
 
 	broadcaster := ipc.NewBroadcaster()
-	handler := ipc.NewHandler(device)
+	handler := ipc.NewHandler(device, version)
 	pipeServer := ipc.NewServer(handler, broadcaster)
+	eventPipe := ipc.NewEventPipe()
 
 	go func() {
 		if err := pipeServer.Run(ctx); err != nil {
 			fmt.Printf("[IPC] Server error: %v\n", err)
 		}
 	}()
+	go func() {
+		if err := eventPipe.Run(ctx); err != nil {
+			fmt.Printf("[EventPipe] Error: %v\n", err)
+		}
+	}()
 
-	// NOTE: listenLoop is disabled when IPC is active — it competes for the
-	// transport mutex and causes DPI/SmartShift commands to hang.
-	// Notifications are visible via pipe-test events.
-	// go listenLoop(device)
+	// Device notification loop (reads HID++ events, pushes to event pipe)
+	go deviceNotificationLoop(ctx, device, handler, broadcaster, eventPipe)
 
 	fmt.Println("[COMMANDS] dpi <value> | smartshift <threshold> | hires on|off | smooth on|off | battery | status | quit")
 
@@ -398,15 +437,66 @@ func readDeviceName(t *hidpp.Transport, nameIdx byte) string {
 	return name.String()
 }
 
-func listenLoop(d *hidpp.Device) {
+// deviceNotificationLoop reads HID++ notifications and routes them to event pipe.
+// Used in console mode (in service mode, deviceLoopWithReconnect handles this).
+func deviceNotificationLoop(ctx context.Context, d *hidpp.Device,
+	handler *ipc.Handler, broadcaster *ipc.Broadcaster, eventPipe *ipc.EventPipe) {
+
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		report, err := d.Transport.Read(1 * time.Second)
 		if err != nil {
 			continue
 		}
-		if report.SW != hidpp.MySW {
-			fmt.Printf("\r[NOTIF] feat=0x%02X func=%d sw=0x%X\n> ",
-				report.FeatIdx, report.Func, report.SW)
+		if report.SW == hidpp.MySW {
+			continue
+		}
+
+		// Battery events
+		if d.BattIdx != 0 && report.FeatIdx == d.BattIdx {
+			if batt, err := d.ReadBattery(); err == nil {
+				evtData := map[string]interface{}{
+					"level":    batt.Level,
+					"charging": batt.Charging,
+				}
+				handler.PushEvent("battery_update", evtData)
+				eventPipe.Push("battery_update", evtData)
+			}
+		}
+
+		// REPROG_V4 button events
+		if d.ReprogIdx != 0 && report.FeatIdx == d.ReprogIdx {
+			if len(report.Params) >= 3 {
+				cid := uint16(report.Params[0])<<8 | uint16(report.Params[1])
+				flags := report.Params[2]
+				pressed := (flags & 0x01) != 0
+
+				var buttonName string
+				switch cid {
+				case 0x01A0:
+					buttonName = "haptic_panel"
+				case 0x00C3:
+					buttonName = "gesture"
+				}
+
+				if buttonName != "" {
+					state := "up"
+					if pressed {
+						state = "down"
+					}
+					evtData := map[string]interface{}{
+						"button": buttonName,
+						"state":  state,
+					}
+					handler.PushEvent("button_event", evtData)
+					eventPipe.Push("button_event", evtData)
+				}
+			}
 		}
 	}
 }

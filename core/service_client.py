@@ -215,14 +215,35 @@ class ServiceClient:
         return self.request("set_haptic",
                             enabled=bool(enabled), intensity=int(intensity)) is not None
 
+    def get_button_sensitivity(self):
+        return self.request("get_button_sensitivity")
+
+    def set_button_sensitivity(self, preset):
+        """Set button sensitivity. preset: 'light', 'medium', 'hard', 'firm'"""
+        return self.request("set_button_sensitivity", preset=preset) is not None
+
     def haptic_trigger(self, pulse_type=0x04):
         return self.request("haptic_trigger", pulse_type=pulse_type) is not None
+
+    def haptic_sequence(self, steps, repeat=1):
+        """Play a sequence of haptic pulses.
+        steps: list of {"pulse": int, "delay": int} dicts
+        repeat: number of times to play (1-20)"""
+        return self.request("haptic_sequence", steps=steps, repeat=repeat) is not None
 
     def get_status(self):
         return self.request("get_status")
 
     def get_capabilities(self):
         return self.request("get_capabilities")
+
+    def get_events(self):
+        """Poll for buffered events (battery, button presses).
+        Returns list of event dicts, or empty list."""
+        result = self.request("get_events")
+        if result and "events" in result:
+            return result["events"]
+        return []
 
     def health(self):
         return self.request("health")

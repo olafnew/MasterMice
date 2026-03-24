@@ -136,15 +136,30 @@ func (t *Transport) Request(featIdx, funcID byte, params []byte, timeout time.Du
 			return report, nil
 		}
 
-		// Error response for our feature
+		// Error response — only match if it's for OUR feature
+		// HID++ 2.0 error format after Parse:
+		//   FeatIdx = 0xFF (error marker)
+		//   Func = (origFeatIdx >> 4)   ← upper nibble of original feature index
+		//   SW   = (origFeatIdx & 0xF)  ← lower nibble of original feature index
+		//   Params[0] = origFuncSW (original func<<4 | sw)
+		//   Params[1] = actual error code
 		if report.IsError() {
-			if Debug {
-				fmt.Printf("[HID++ DBG] Error report: feat=0xFF params=%02X\n", report.Params)
-			}
+			origFeat := (report.Func << 4) | report.SW
+			var errCode byte
 			if len(report.Params) >= 2 {
-				return nil, fmt.Errorf("%w: error code 0x%02X (params=%02X)",
-					ErrDevice, report.Params[1], report.Params)
+				errCode = report.Params[1]
+			} else if len(report.Params) >= 1 {
+				errCode = report.Params[0]
 			}
+			if Debug {
+				fmt.Printf("[HID++ DBG] Error: origFeat=0x%02X errCode=0x%02X (waiting for feat=0x%02X)\n",
+					origFeat, errCode, featIdx)
+			}
+			if origFeat == featIdx {
+				return nil, fmt.Errorf("%w: error code 0x%02X for feat 0x%02X",
+					ErrDevice, errCode, featIdx)
+			}
+			// Error for a different feature — discard and keep reading
 		}
 
 		discarded++

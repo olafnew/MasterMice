@@ -154,6 +154,12 @@ if sys.platform == "win32":
         if exe_lower == "explorer.exe":
             wc = _get_window_class(hwnd)
             if wc not in _EXPLORER_CLASSES:
+                # Suppress noisy transient windows entirely
+                _NOISY = ("OperationStatusWindow", "TopLevelWindowForOverflowXamlIsland",
+                          "ForegroundStaging", "ProxyModalWindow",
+                          "ApplicationManager_DesktopShellWindow")
+                if wc in _NOISY:
+                    return None  # keep last profile, no log
                 title = _get_window_title(hwnd)
                 # Deduplicate: skip if same class+title as last log,
                 # plus throttle to max 1 print per 5 seconds

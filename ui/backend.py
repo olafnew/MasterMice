@@ -22,6 +22,67 @@ def _action_label(action_id):
     return ACTIONS.get(action_id, {}).get("label", "Do Nothing")
 
 
+# ── UAC elevation via ShellExecuteExW ──────────────────────────────
+import ctypes
+import ctypes.wintypes as _wt
+
+class _SHELLEXECUTEINFOW(ctypes.Structure):
+    _fields_ = [
+        ('cbSize',       _wt.DWORD),
+        ('fMask',        ctypes.c_ulong),
+        ('hwnd',         _wt.HWND),
+        ('lpVerb',       _wt.LPCWSTR),
+        ('lpFile',       _wt.LPCWSTR),
+        ('lpParameters', _wt.LPCWSTR),
+        ('lpDirectory',  _wt.LPCWSTR),
+        ('nShow',        ctypes.c_int),
+        ('hInstApp',     _wt.HINSTANCE),
+        ('lpIDList',     ctypes.c_void_p),
+        ('lpClass',      _wt.LPCWSTR),
+        ('hkeyClass',    _wt.HKEY),
+        ('dwHotKey',     _wt.DWORD),
+        ('hIcon',        _wt.HANDLE),
+        ('hProcess',     _wt.HANDLE),
+    ]
+
+_ShellExecuteExW = ctypes.windll.shell32.ShellExecuteExW
+_ShellExecuteExW.argtypes = (ctypes.POINTER(_SHELLEXECUTEINFOW),)
+_ShellExecuteExW.restype = _wt.BOOL
+
+_INFINITE = 0xFFFFFFFF
+_ERROR_CANCELLED = 1223
+_SEE_MASK_NOCLOSEPROCESS = 0x00000040
+_SEE_MASK_NO_CONSOLE = 0x00008000
+
+
+def _run_elevated(exe_path, arguments="", wait=True):
+    """Launch exe with admin privileges via UAC. Returns (success, exit_code)."""
+    sei = _SHELLEXECUTEINFOW()
+    sei.cbSize = ctypes.sizeof(sei)
+    sei.fMask = _SEE_MASK_NOCLOSEPROCESS | _SEE_MASK_NO_CONSOLE
+    sei.hwnd = None
+    sei.lpVerb = "runas"
+    sei.lpFile = exe_path
+    sei.lpParameters = arguments
+    sei.lpDirectory = os.path.dirname(exe_path)
+    sei.nShow = 0  # SW_HIDE
+
+    if not _ShellExecuteExW(ctypes.byref(sei)):
+        err = ctypes.GetLastError()
+        if err == _ERROR_CANCELLED:
+            return (False, None)
+        raise ctypes.WinError(err)
+
+    if wait and sei.hProcess:
+        ctypes.windll.kernel32.WaitForSingleObject(sei.hProcess, _INFINITE)
+        exit_code = _wt.DWORD()
+        ctypes.windll.kernel32.GetExitCodeProcess(sei.hProcess, ctypes.byref(exit_code))
+        ctypes.windll.kernel32.CloseHandle(sei.hProcess)
+        return (True, exit_code.value)
+
+    return (True, None)
+
+
 class Backend(QObject):
     """QML-exposed backend that bridges the engine and configuration."""
 
@@ -254,6 +315,13 @@ class Backend(QObject):
     def appVersion(self):
         return APP_VERSION
 
+    @Property(str, notify=mouseConnectedChanged)
+    def serviceVersion(self):
+        """Service version (cached from engine's initial health check)."""
+        if self._engine:
+            return self._engine.service_version
+        return ""
+
     @Property(str, notify=activeProfileChanged)
     def activeProfile(self):
         return self._cfg.get("active_profile", "default")
@@ -360,6 +428,40 @@ class Backend(QObject):
         print(f"[Settings] Debug mode → {value}")
         self._cfg.setdefault("settings", {})["debug_mode"] = bool(value)
         save_config(self._cfg)
+        import sys, subprocess
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                # Show/hide app console
+                hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+                if hwnd:
+                    ctypes.windll.user32.ShowWindow(hwnd, 5 if value else 0)
+                # Restart service with visible console (or hide it)
+                if self._engine and value:
+                    svc_path = self._engine._find_service_exe()
+                    if svc_path:
+                        # Kill hidden service, relaunch with visible console
+                        subprocess.run(["taskkill", "/F", "/IM", "mastermice-svc.exe"],
+                                       capture_output=True, timeout=3,
+                                       creationflags=0x08000000)
+                        import time
+                        time.sleep(1)
+                        # Launch with visible console (no CREATE_NO_WINDOW)
+                        subprocess.Popen([svc_path], creationflags=0)
+                        print("[Settings] Service relaunched with visible console")
+                elif self._engine and not value:
+                    # Restart service hidden
+                    svc_path = self._engine._find_service_exe()
+                    if svc_path:
+                        subprocess.run(["taskkill", "/F", "/IM", "mastermice-svc.exe"],
+                                       capture_output=True, timeout=3,
+                                       creationflags=0x08000000)
+                        import time
+                        time.sleep(1)
+                        subprocess.Popen([svc_path], creationflags=0x08000000, close_fds=True)
+                        print("[Settings] Service relaunched hidden")
+            except Exception as e:
+                print(f"[Settings] Debug mode toggle error: {e}")
         self.settingsChanged.emit()
 
     @Slot(result=int)
@@ -500,6 +602,8 @@ class Backend(QObject):
     def setScrollForce(self, value):
         if not self._engine:
             return
+        self._cfg.setdefault("settings", {})["scroll_force"] = value
+        save_config(self._cfg)
         def _do():
             svc = self._engine.svc
             if svc.connected:
@@ -594,14 +698,133 @@ class Backend(QObject):
     @Slot()
     def testHaptic(self):
         """Send a strong haptic pulse for testing."""
+        self.testHapticPulse(0x08)
+
+    @Slot(int)
+    def testHapticPulse(self, pulseType):
+        """Send a haptic pulse of the specified type."""
         if not self._engine:
             return
         def _do():
             svc = self._engine.svc
             if svc.connected:
-                svc.haptic_trigger(0x08)
-                print("[Settings] Haptic test pulse sent")
+                svc.haptic_trigger(pulseType)
         self._run_async(_do)
+
+    @Slot(str)
+    def playHapticSequence(self, sequenceJson):
+        """Play a haptic pulse sequence.
+        sequenceJson: JSON string like '{"steps":[{"pulse":4,"delay":30},...], "repeat":1}'"""
+        if not self._engine:
+            return
+        import json as _json
+        try:
+            data = _json.loads(sequenceJson)
+        except Exception:
+            return
+        steps = data.get("steps", [])
+        repeat = data.get("repeat", 1)
+        def _do():
+            svc = self._engine.svc
+            if svc.connected:
+                svc.haptic_sequence(steps, repeat)
+        self._run_async(_do)
+
+    # ── Button Sensitivity (MX4 only) ──────────────────────────
+
+    @Slot(result=bool)
+    def hasButtonSensitivity(self):
+        if not self._engine:
+            return False
+        svc = self._engine.svc
+        if svc.connected:
+            caps = svc.get_capabilities()
+            return caps.get("has_button_sens", False) if caps else False
+        return False
+
+    @Slot(result=str)
+    def getButtonSensitivity(self):
+        """Returns current preset name: light/medium/hard/firm/unknown."""
+        if not self._engine:
+            return "unknown"
+        svc = self._engine.svc
+        if svc.connected:
+            result = svc.get_button_sensitivity()
+            if result:
+                return result.get("preset", "unknown")
+        return "unknown"
+
+    @Slot(str)
+    def setButtonSensitivity(self, preset):
+        """Set button sensitivity: light, medium, hard, firm."""
+        if not self._engine:
+            return
+        def _do():
+            svc = self._engine.svc
+            if svc.connected:
+                svc.set_button_sensitivity(preset)
+                print(f"[Settings] Button sensitivity → {preset}")
+        self._run_async(_do)
+        self.settingsChanged.emit()
+
+    # ── Startup Registration ─────────────────────────────────────
+
+    @Slot(result=bool)
+    def getStartupEnabled(self):
+        """Check if MasterMice service is registered with Windows SCM."""
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["sc", "query", "MasterMice"],
+                capture_output=True, timeout=3,
+                creationflags=0x08000000,  # CREATE_NO_WINDOW
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    @Slot(bool, result=bool)
+    def setStartupEnabled(self, enabled):
+        """Install or remove MasterMice as a proper Windows service via SCM.
+        Uses the service exe's --install/--uninstall flag with UAC elevation.
+        Returns True on success, False on failure."""
+        svc_path = self._find_service_exe()
+        if not svc_path and enabled:
+            print("[Settings] Cannot enable startup: mastermice-svc.exe not found")
+            return False
+
+        try:
+            arg = "install" if enabled else "uninstall"
+            success, exit_code = _run_elevated(svc_path, arg)
+            if success:
+                print(f"[Settings] Service {arg} completed (exit={exit_code})")
+                return True
+            else:
+                print(f"[Settings] UAC cancelled by user")
+                return False
+        except Exception as e:
+            print(f"[Settings] Service {arg} error: {e}")
+            return False
+
+    def _find_service_exe(self):
+        """Find mastermice-svc.exe — look in _internal/ (hidden), then app dir."""
+        import sys, os
+        if getattr(sys, "frozen", False):
+            app_dir = os.path.dirname(sys.executable)
+            candidates = [
+                os.path.join(app_dir, "_internal", "mastermice-svc.exe"),
+                os.path.join(app_dir, "mastermice-svc.exe"),
+            ]
+        else:
+            root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            candidates = [
+                os.path.join(root, "service", "mastermice-svc.exe"),
+            ]
+        for path in candidates:
+            path = os.path.abspath(path)
+            if os.path.isfile(path):
+                return path
+        return None
 
     @Property(int, notify=settingsChanged)
     def logMaxKb(self):

@@ -266,6 +266,16 @@ def main():
     print(f"[MasterMice] Version {APP_VERSION}")
     _print_startup_times()
 
+    # ── Hide console unless debug mode is on ──────────────────────
+    if sys.platform == "win32" and not _cfg.get("settings", {}).get("debug_mode", False):
+        try:
+            import ctypes
+            _hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            if _hwnd:
+                ctypes.windll.user32.ShowWindow(_hwnd, 0)  # SW_HIDE
+        except Exception:
+            pass
+
     # ── Single-instance check: kill any existing MasterMice ──────
     from core.app_detector import AppDetector
     _existing = AppDetector.is_running("MasterMice.exe")
@@ -457,6 +467,11 @@ def main():
         QSystemTrayIcon.ActivationReason.DoubleClick,
     ) else None)
     tray.show()
+
+    # ── Minimize to tray on close ─────────────────────────────
+    # Don't quit when window is closed — keep running in tray.
+    # User must use "Quit MasterMice" from tray menu to fully exit.
+    app.setQuitOnLastWindowClosed(False)
 
     # ── Run ────────────────────────────────────────────────────
     try:

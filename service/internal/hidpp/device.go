@@ -3,6 +3,8 @@ package hidpp
 import (
 	"fmt"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 // Device represents a connected Logitech HID++ device with discovered features.
@@ -25,13 +27,19 @@ type Device struct {
 	SmartShiftVer int // 1 or 2
 	HiResIdx     byte
 	ScrollCtrlIdx byte
-	HapticIdx    byte
-	ReprogIdx    byte
+	HapticIdx     byte
+	ButtonSensIdx byte
+	ReprogIdx     byte
+
+	// SHORT handle for haptic motor (HidD_SetOutputReport)
+	ShortHandle windows.Handle
 
 	// Cached state (updated on read, used by get_status to avoid slow HID++)
-	CachedBattLevel    int  // last known battery level (0-100)
-	CachedBattCharging bool // last known charging state
-	CachedDPI          int  // last known DPI value
+	CachedBattLevel       int  // last known battery level (0-100)
+	CachedBattCharging    bool // last known charging state
+	CachedDPI             int  // last known DPI value
+	CachedHapticEnabled   bool
+	CachedHapticIntensity int
 }
 
 // DiscoverFeatures uses IRoot to find all features declared in the device profile.
@@ -88,12 +96,95 @@ func (d *Device) DiscoverFeatures() error {
 		fmt.Printf("[DEVICE] Scroll Control at index 0x%02X\n", d.ScrollCtrlIdx)
 	}
 
+	// Haptic motor (MX4 only)
+	if p.HasHaptics && p.HapticFeatureID != 0 {
+		d.HapticIdx, _ = t.RequestIRoot(p.HapticFeatureID)
+		if d.HapticIdx != 0 {
+			fmt.Printf("[DEVICE] Haptic (0x%04X) at index 0x%02X\n", p.HapticFeatureID, d.HapticIdx)
+			// Open SHORT handle for haptic commands
+			if err := d.OpenShortHandle(); err != nil {
+				fmt.Printf("[DEVICE] WARNING: Haptic SHORT handle failed: %v\n", err)
+			}
+		}
+	}
+
+	// Button Sensitivity (MX4 only)
+	if p.HasButtonSens && p.ButtonSensFeatID != 0 {
+		d.ButtonSensIdx, _ = t.RequestIRoot(p.ButtonSensFeatID)
+		if d.ButtonSensIdx != 0 {
+			fmt.Printf("[DEVICE] Button Sensitivity (0x%04X) at index 0x%02X\n",
+				p.ButtonSensFeatID, d.ButtonSensIdx)
+		}
+	}
+
 	// REPROG_V4
 	d.ReprogIdx, _ = t.RequestIRoot(FeatReprogV4)
 	if d.ReprogIdx != 0 {
 		fmt.Printf("[DEVICE] REPROG_V4 at index 0x%02X\n", d.ReprogIdx)
 	}
 
+	return nil
+}
+
+// ── Button Sensitivity ──────────────────────────────────────────
+
+// Button sensitivity presets (MX4)
+const (
+	ButtonSensLight  uint16 = 0x0F3E
+	ButtonSensMedium uint16 = 0x130E
+	ButtonSensHard   uint16 = 0x16DE
+	ButtonSensFirm   uint16 = 0x1958
+)
+
+// GetButtonSensitivity reads the current button sensitivity value.
+// Returns the raw 2-byte preset value (e.g. 0x0F3E=Light, 0x130E=Medium).
+func (d *Device) GetButtonSensitivity() (uint16, error) {
+	if d.ButtonSensIdx == 0 {
+		return 0, fmt.Errorf("button sensitivity not available")
+	}
+	// func=2: getCurrentValue → [value_hi, value_lo]
+	report, err := d.Transport.Request(d.ButtonSensIdx, 2, nil, 2*time.Second)
+	if err != nil {
+		return 0, err
+	}
+	if len(report.Params) >= 2 {
+		return uint16(report.Params[0])<<8 | uint16(report.Params[1]), nil
+	}
+	return 0, fmt.Errorf("button sensitivity response too short")
+}
+
+// SetButtonSensitivity sets the button sensitivity preset.
+// Use ButtonSensLight, ButtonSensMedium, ButtonSensHard, ButtonSensFirm.
+func (d *Device) SetButtonSensitivity(preset uint16) error {
+	if d.ButtonSensIdx == 0 {
+		return fmt.Errorf("button sensitivity not available")
+	}
+	hi := byte(preset >> 8)
+	lo := byte(preset & 0xFF)
+	// Protocol from Wireshark: func=3, params=[0x00, preset_hi, preset_lo, extra_hi, extra_lo]
+	// Each preset has a companion 2-byte value (from Logitech Options+ captures):
+	//   Light  (0x0F3E) → extra 0x261B
+	//   Medium (0x130E) → extra 0x2FA3
+	//   Hard   (0x16DE) → extra 0x392B
+	//   Firm   (0x1958) → extra 0x3F5C
+	var extra uint16
+	switch preset {
+	case ButtonSensLight:
+		extra = 0x261B
+	case ButtonSensMedium:
+		extra = 0x2FA3
+	case ButtonSensHard:
+		extra = 0x392B
+	case ButtonSensFirm:
+		extra = 0x3F5C
+	}
+	ehi := byte(extra >> 8)
+	elo := byte(extra & 0xFF)
+	_, err := d.Transport.Request(d.ButtonSensIdx, 3, []byte{0x00, hi, lo, ehi, elo}, 2*time.Second)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("[BTNSENS] Set to 0x%04X\n", preset)
 	return nil
 }
 
@@ -153,15 +244,22 @@ func (d *Device) ReadBattery() (*BatteryStatus, error) {
 
 	if d.BattType == "unified" {
 		// 0x1004: func 1 = get_status → [soc, battStatus, extPower]
+		// Wireshark confirms: via Bolt, extPower is ALWAYS 0.
+		// Charging is indicated by battStatus: 1=recharging, 2=almost_full,
+		// 3=charge_complete, 4=recharging_below_optimal, 5=recharging_above_optimal
+		// Status 8 = normal/OK (not charging)
 		report, err := d.Transport.Request(d.BattIdx, 1, nil, 2*time.Second)
 		if err != nil {
 			return nil, err
 		}
 		if len(report.Params) >= 3 {
+			battStatus := report.Params[1]
 			extPower := report.Params[2]
+			// Check BOTH: extPower (works on Bluetooth) OR battStatus (works on Bolt)
+			charging := (extPower >= 1 && extPower <= 5) || (battStatus >= 1 && battStatus <= 5)
 			bs := &BatteryStatus{
 				Level:    int(report.Params[0]),
-				Charging: extPower >= 1 && extPower <= 5,
+				Charging: charging,
 			}
 			d.CachedBattLevel = bs.Level
 			d.CachedBattCharging = bs.Charging

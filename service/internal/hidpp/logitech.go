@@ -145,10 +145,39 @@ func findRunningLogiProcesses() []string {
 
 	outLower := strings.ToLower(string(out))
 	var found []string
+
+	// Check exact process names
 	for _, proc := range logiProcesses {
 		if strings.Contains(outLower, strings.ToLower(proc)) {
 			found = append(found, proc)
 		}
 	}
+
+	// Also catch any process containing "logioptions" or "logiplugin" (covers variants)
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		lineLower := strings.ToLower(line)
+		if strings.Contains(lineLower, "logioptions") || strings.Contains(lineLower, "logiplugin") {
+			// Extract process name from CSV: "processname.exe","PID",...
+			parts := strings.Split(strings.TrimSpace(line), ",")
+			if len(parts) >= 1 {
+				name := strings.Trim(parts[0], "\" ")
+				if name != "" && !containsStr(found, name) {
+					found = append(found, name)
+				}
+			}
+		}
+	}
+
 	return found
+}
+
+func containsStr(list []string, s string) bool {
+	sLower := strings.ToLower(s)
+	for _, item := range list {
+		if strings.ToLower(item) == sLower {
+			return true
+		}
+	}
+	return false
 }

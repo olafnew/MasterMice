@@ -53,16 +53,31 @@ Item {
                             color: settingsPage.theme.textPrimary
                         }
                         Rectangle {
-                            width: verText.implicitWidth + 12
+                            width: appVerText.implicitWidth + 12
                             height: 20; radius: 10
                             color: settingsPage.theme.accentDim
                             anchors.verticalCenter: parent.verticalCenter
                             Text {
-                                id: verText
+                                id: appVerText
                                 anchors.centerIn: parent
-                                text: "v" + (backend ? backend.appVersion : "")
-                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
+                                text: "App " + (backend ? backend.appVersion : "")
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
                                 color: settingsPage.theme.accent
+                            }
+                        }
+                        Rectangle {
+                            property string svcVer: backend ? backend.serviceVersion : ""
+                            visible: svcVer !== ""
+                            width: svcVerText.implicitWidth + 12
+                            height: 20; radius: 10
+                            color: Qt.rgba(1, 1, 1, 0.08)
+                            anchors.verticalCenter: parent.verticalCenter
+                            Text {
+                                id: svcVerText
+                                anchors.centerIn: parent
+                                text: "Service " + parent.svcVer
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10 }
+                                color: settingsPage.theme.textSecondary
                             }
                         }
                     }
@@ -205,7 +220,7 @@ Item {
                                        ? settingsPage.theme.accent
                                        : amMa.containsMouse
                                          ? settingsPage.theme.bgCardHover
-                                         : settingsPage.theme.bgSubtle
+                                         : settingsPage.theme.bgCard
                                 border.width: 1
                                 border.color: settingsPage.theme.border
                                 Behavior on color { ColorAnimation { duration: 120 } }
@@ -244,8 +259,6 @@ Item {
                 color: settingsPage.theme.bgCard
                 border.width: 1
                 border.color: settingsPage.theme.border
-                opacity: 0.5
-
                 Column {
                     id: startupContent
                     anchors {
@@ -254,33 +267,14 @@ Item {
                     }
                     spacing: 12
 
-                    Row {
-                        spacing: 8
-
-                        Text {
-                            text: "Run on Startup"
-                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 16; bold: true }
-                            color: settingsPage.theme.textPrimary
-                        }
-
-                        Rectangle {
-                            width: csText.implicitWidth + 12
-                            height: 18; radius: 9
-                            color: settingsPage.theme.border
-                            anchors.verticalCenter: parent.verticalCenter
-
-                            Text {
-                                id: csText
-                                anchors.centerIn: parent
-                                text: "Coming soon"
-                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 9 }
-                                color: settingsPage.theme.textDim
-                            }
-                        }
+                    Text {
+                        text: "Run on Startup"
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 16; bold: true }
+                        color: settingsPage.theme.textPrimary
                     }
 
                     Text {
-                        text: "Launch MasterMice automatically as a background service when Windows starts"
+                        text: "Launch MasterMice service automatically when Windows starts"
                         font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
                         color: settingsPage.theme.textSecondary
                     }
@@ -297,6 +291,119 @@ Item {
 
                             Text {
                                 text: "Start as Windows service"
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
+                                color: settingsPage.theme.textPrimary
+                                Layout.fillWidth: true
+                            }
+
+                            Switch {
+                                id: startupSwitch
+                                Material.accent: settingsPage.theme.accent
+                                Component.onCompleted: {
+                                    checked = backend ? backend.getStartupEnabled() : false
+                                }
+                                onToggled: {
+                                    var ok = backend.setStartupEnabled(checked)
+                                    if (!ok) checked = !checked
+                                    else backend.statusMessage("Saved")
+                                }
+                            }
+                        }
+                    }
+
+                    // Re-install service button
+                    Rectangle {
+                        width: reinstallLabel.implicitWidth + 24; height: 32; radius: 8
+                        color: reinstallMa.containsMouse ? settingsPage.theme.accentDim : settingsPage.theme.bgSubtle
+                        border.width: 1
+                        border.color: settingsPage.theme.border
+                        Behavior on color { ColorAnimation { duration: 120 } }
+                        Text {
+                            id: reinstallLabel
+                            anchors.centerIn: parent
+                            text: "Re-install Service"
+                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 11 }
+                            color: settingsPage.theme.textPrimary
+                        }
+                        MouseArea {
+                            id: reinstallMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                backend.setStartupEnabled(false)
+                                backend.setStartupEnabled(true)
+                                startupSwitch.checked = backend.getStartupEnabled()
+                            }
+                        }
+                    }
+                }
+            }
+
+            Item { width: 1; height: 16 }
+
+            // ── Automatic Updates (coming soon) ────────────────────
+            Rectangle {
+                width: parent.width - 72
+                anchors.horizontalCenter: parent.horizontalCenter
+                height: updatesContent.implicitHeight + 40
+                radius: Theme.radius
+                color: settingsPage.theme.bgCard
+                border.width: 1
+                border.color: settingsPage.theme.border
+                opacity: 0.5
+
+                Column {
+                    id: updatesContent
+                    anchors {
+                        left: parent.left; right: parent.right
+                        top: parent.top; margins: 20
+                    }
+                    spacing: 12
+
+                    Row {
+                        spacing: 8
+
+                        Text {
+                            text: "Automatic Updates"
+                            font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 16; bold: true }
+                            color: settingsPage.theme.textPrimary
+                        }
+
+                        Rectangle {
+                            width: updSoonText.implicitWidth + 12
+                            height: 18; radius: 9
+                            color: settingsPage.theme.border
+                            anchors.verticalCenter: parent.verticalCenter
+
+                            Text {
+                                id: updSoonText
+                                anchors.centerIn: parent
+                                text: "Coming soon"
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 9 }
+                                color: settingsPage.theme.textDim
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "Automatically check for and install updates to MasterMice"
+                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12 }
+                        color: settingsPage.theme.textSecondary
+                    }
+
+                    Rectangle {
+                        width: parent.width; height: 52; radius: 10
+                        color: settingsPage.theme.bgSubtle
+
+                        RowLayout {
+                            anchors {
+                                fill: parent
+                                leftMargin: 16; rightMargin: 16
+                            }
+
+                            Text {
+                                text: "Check for updates automatically"
                                 font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
                                 color: settingsPage.theme.textDim
                                 Layout.fillWidth: true
@@ -573,6 +680,37 @@ Item {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: backend.openLogInExplorer()
+                            }
+                        }
+
+                        Rectangle {
+                            width: dbgLabel.implicitWidth + 24
+                            height: 34; radius: 8
+                            color: backend && backend.debugMode
+                                   ? settingsPage.theme.accent
+                                   : dbgMa.containsMouse
+                                     ? settingsPage.theme.bgCardHover
+                                     : settingsPage.theme.bgSubtle
+                            border.width: 1
+                            border.color: backend && backend.debugMode ? settingsPage.theme.accent : settingsPage.theme.border
+                            Behavior on color { ColorAnimation { duration: 120 } }
+
+                            Text {
+                                id: dbgLabel
+                                anchors.centerIn: parent
+                                text: backend && backend.debugMode ? "Hide Console" : "Show Console"
+                                font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 13 }
+                                color: backend && backend.debugMode
+                                       ? settingsPage.theme.bgSidebar
+                                       : settingsPage.theme.textPrimary
+                            }
+
+                            MouseArea {
+                                id: dbgMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: { if (backend) backend.setDebugMode(!backend.debugMode) }
                             }
                         }
                     }

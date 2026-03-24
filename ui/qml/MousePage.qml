@@ -769,6 +769,70 @@ Item {
                                         }
                                     }
                                 }
+
+                                // ── Sensitivity presets (only for haptic_panel) ──
+                                Column {
+                                    width: parent.width
+                                    spacing: 6
+                                    visible: selectedButton === "haptic_panel" && backend && backend.mouseConnected
+
+                                    Rectangle {
+                                        width: parent.width; height: 1
+                                        color: mousePage.theme.border
+                                        opacity: 0.5
+                                    }
+
+                                    Text {
+                                        text: "CLICK SENSITIVITY"
+                                        font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 10
+                                               capitalization: Font.AllUppercase
+                                               letterSpacing: 1 }
+                                        color: mousePage.theme.textDim
+                                    }
+
+                                    property string currentSens: backend ? backend.getButtonSensitivity() : "unknown"
+
+                                    Flow {
+                                        width: parent.width; spacing: 6
+                                        Repeater {
+                                            model: [
+                                                { label: "Light", value: "light" },
+                                                { label: "Medium", value: "medium" },
+                                                { label: "Hard", value: "hard" },
+                                                { label: "Firm", value: "firm" }
+                                            ]
+                                            delegate: Rectangle {
+                                                required property var modelData
+                                                property bool active: parent.parent.parent.currentSens === modelData.value
+                                                width: sensLbl.implicitWidth + 20; height: 32; radius: 8
+                                                color: active ? mousePage.theme.accent
+                                                       : sensMa.containsMouse ? mousePage.theme.bgCardHover
+                                                       : mousePage.theme.bgSubtle
+                                                border.width: 1
+                                                border.color: active ? mousePage.theme.accent : mousePage.theme.border
+                                                Behavior on color { ColorAnimation { duration: 120 } }
+                                                Text {
+                                                    id: sensLbl
+                                                    anchors.centerIn: parent
+                                                    text: modelData.label
+                                                    font { family: uiState ? uiState.fontFamily : "Segoe UI"; pixelSize: 12; bold: active }
+                                                    color: active ? "#000" : mousePage.theme.textPrimary
+                                                }
+                                                MouseArea {
+                                                    id: sensMa
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        backend.setButtonSensitivity(modelData.value)
+                                                        parent.parent.parent.parent.currentSens = modelData.value
+                                                        backend.statusMessage("Saved")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

@@ -28,7 +28,7 @@ var models = {
             { buttonKey: "xbutton1",     normX: 0.6763, normY: 0.4183, label: "Back Button",      placeholder: false },
             { buttonKey: "xbutton2",     normX: 0.6078, normY: 0.4865, label: "Forward Button",   placeholder: false },
             { buttonKey: "middle",       normX: 0.2191, normY: 0.4649, label: "Middle Button",    placeholder: false },
-            { buttonKey: "haptic_panel", normX: 0.6160, normY: 0.5855, label: "Haptic Sense Panel", placeholder: true },
+            { buttonKey: "haptic_panel", normX: 0.6160, normY: 0.5855, label: "Haptic Sense Panel", placeholder: false },
             { buttonKey: "gesture",      normX: 0.5206, normY: 0.5679, label: "Gesture Button",   placeholder: false },
             { buttonKey: "scroll_up",    normX: 0.1817, normY: 0.5328, label: "Scroll Up",        placeholder: false },
             { buttonKey: "right_click",  normX: 0.0851, normY: 0.5807, label: "Right Click",      placeholder: false },

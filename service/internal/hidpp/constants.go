@@ -30,7 +30,8 @@ const (
 	FeatSmartShift2 = 0x2111
 	FeatHiResWheel  = 0x2121
 	FeatHiResWheel2 = 0x2250
-	FeatHaptic      = 0xB019
+	FeatHaptic      = 0x19B0  // NOT 0xB019 — that was a byte-swap error
+	FeatButtonSens  = 0x19C0  // Button press sensitivity (MX4 only)
 )
 
 // Control IDs for button divert
