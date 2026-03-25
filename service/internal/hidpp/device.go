@@ -121,9 +121,50 @@ func (d *Device) DiscoverFeatures() error {
 	d.ReprogIdx, _ = t.RequestIRoot(FeatReprogV4)
 	if d.ReprogIdx != 0 {
 		fmt.Printf("[DEVICE] REPROG_V4 at index 0x%02X\n", d.ReprogIdx)
+		d.DivertButtons()
 	}
 
 	return nil
+}
+
+// DivertButtons configures REPROG_V4 to divert gesture and actions ring buttons.
+// This makes the device send button press/release events AND raw XY movement
+// data through the HID++ channel instead of standard mouse reports.
+//
+// Divert flags (from Wireshark captures of Logitech Options+):
+//   Bit 0: divert (redirect button events to HID++)
+//   Bit 1: dvalid (divert flag is valid)
+//   Bit 4: rawXY (divert raw mouse XY movement while button held)
+//   Bit 5: rawXY dvalid (rawXY flag is valid)
+//
+// 0x03 = divert button only (events but NO movement)
+// 0x33 = divert button + raw XY (events AND movement — needed for gesture swipes)
+func (d *Device) DivertButtons() {
+	if d.ReprogIdx == 0 {
+		return
+	}
+	t := d.Transport
+
+	// Divert gesture button (CID 0x00C3) with rawXY
+	// func=3 (setCIDReporting), params=[CID_hi, CID_lo, flags]
+	_, err := t.Request(d.ReprogIdx, 3,
+		[]byte{byte(CIDGesture >> 8), byte(CIDGesture & 0xFF), 0x33},
+		2*time.Second)
+	if err != nil {
+		fmt.Printf("[DEVICE] Divert gesture (0x00C3) failed: %v\n", err)
+	} else {
+		fmt.Println("[DEVICE] Divert gesture (0x00C3): OK (button + rawXY)")
+	}
+
+	// Divert actions ring / haptic panel (CID 0x01A0) — button only, no rawXY needed
+	_, err = t.Request(d.ReprogIdx, 3,
+		[]byte{byte(CIDActionsRing >> 8), byte(CIDActionsRing & 0xFF), 0x03},
+		2*time.Second)
+	if err != nil {
+		fmt.Printf("[DEVICE] Divert actions ring (0x01A0): not available (MX3)\n")
+	} else {
+		fmt.Println("[DEVICE] Divert actions ring (0x01A0): OK")
+	}
 }
 
 // ── Button Sensitivity ──────────────────────────────────────────

@@ -22,7 +22,7 @@ import (
 	msvc "github.com/olafnew/mastermice-svc/internal/service"
 )
 
-const version = "0.5.1"
+const version = "0.6.0"
 
 func main() {
 	// Handle service management commands (require admin)
@@ -78,6 +78,10 @@ func main() {
 			os.Exit(0)
 		}
 	}
+
+	// Kill old service + agent instances (except ourselves) BEFORE touching HID
+	hidpp.KillOldMasterMiceByName("mastermice-svc.exe")
+	hidpp.KillOldMasterMiceByName("mastermice-agent.exe")
 
 	if err := hid.Init(); err != nil {
 		log.Fatalf("[ERROR] hidapi init failed: %v", err)
@@ -442,6 +446,7 @@ func readDeviceName(t *hidpp.Transport, nameIdx byte) string {
 func deviceNotificationLoop(ctx context.Context, d *hidpp.Device,
 	handler *ipc.Handler, broadcaster *ipc.Broadcaster, eventPipe *ipc.EventPipe) {
 
+	readCount := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -451,8 +456,21 @@ func deviceNotificationLoop(ctx context.Context, d *hidpp.Device,
 
 		report, err := d.Transport.Read(1 * time.Second)
 		if err != nil {
+			readCount++
+			if readCount <= 3 || readCount%30 == 0 {
+				fmt.Printf("[NOTIF-DBG] Read #%d: %v\n", readCount, err)
+			}
 			continue
 		}
+
+		// Log ALL reports for debugging
+		pLen := len(report.Params)
+		if pLen > 6 {
+			pLen = 6
+		}
+		fmt.Printf("[NOTIF] feat=0x%02X func=%d sw=0x%X params=%02X\n",
+			report.FeatIdx, report.Func, report.SW, report.Params[:pLen])
+
 		if report.SW == hidpp.MySW {
 			continue
 		}
@@ -465,36 +483,73 @@ func deviceNotificationLoop(ctx context.Context, d *hidpp.Device,
 					"charging": batt.Charging,
 				}
 				handler.PushEvent("battery_update", evtData)
-				eventPipe.Push("battery_update", evtData)
+				if eventPipe != nil {
+					eventPipe.Push("battery_update", evtData)
+				}
 			}
 		}
 
-		// REPROG_V4 button events
+		// REPROG_V4 notifications (from Wireshark + live testing):
+		//   func=0: diverted_buttons_event — params = LIST of currently pressed CIDs
+		//           [CID1_hi, CID1_lo, CID2_hi, CID2_lo, ...] (zero-padded)
+		//           CID present = button pressed, CID=0x0000 = released (empty list)
+		//   func=1: divertedRawXY — params=[dx_hi, dx_lo, dy_hi, dy_lo] (raw sensor)
 		if d.ReprogIdx != 0 && report.FeatIdx == d.ReprogIdx {
-			if len(report.Params) >= 3 {
-				cid := uint16(report.Params[0])<<8 | uint16(report.Params[1])
-				flags := report.Params[2]
-				pressed := (flags & 0x01) != 0
+			switch report.Func {
 
-				var buttonName string
-				switch cid {
-				case 0x01A0:
-					buttonName = "haptic_panel"
-				case 0x00C3:
-					buttonName = "gesture"
+			case 0:
+				// Diverted button event — params contain LIST of pressed CIDs
+				if len(report.Params) >= 2 {
+					cid := uint16(report.Params[0])<<8 | uint16(report.Params[1])
+
+					if cid != 0 {
+						// A button IS pressed (CID is in the list)
+						var buttonName string
+						switch cid {
+						case 0x01A0:
+							buttonName = "haptic_panel"
+						case 0x00C3:
+							buttonName = "gesture"
+						}
+						if buttonName != "" {
+							evtData := map[string]interface{}{
+								"button": buttonName,
+								"state":  "down",
+								"cid":    fmt.Sprintf("0x%04X", cid),
+							}
+							handler.PushEvent("button_event", evtData)
+							if eventPipe != nil {
+								eventPipe.Push("button_event", evtData)
+							}
+						}
+					} else {
+						// CID=0x0000 → all buttons released
+						// Send "up" for all known diverted buttons
+						for _, btn := range []string{"gesture", "haptic_panel"} {
+							evtData := map[string]interface{}{
+								"button": btn,
+								"state":  "up",
+							}
+							handler.PushEvent("button_event", evtData)
+							if eventPipe != nil {
+								eventPipe.Push("button_event", evtData)
+							}
+						}
+					}
 				}
 
-				if buttonName != "" {
-					state := "up"
-					if pressed {
-						state = "down"
+			case 1:
+				// divertedRawXY — mouse movement while gesture button held
+				// params = [dx_hi, dx_lo, dy_hi, dy_lo] (signed 16-bit big-endian)
+				if len(report.Params) >= 4 {
+					dx := int16(uint16(report.Params[0])<<8 | uint16(report.Params[1]))
+					dy := int16(uint16(report.Params[2])<<8 | uint16(report.Params[3]))
+					if eventPipe != nil {
+						eventPipe.Push("gesture_move", map[string]interface{}{
+							"dx": int(dx),
+							"dy": int(dy),
+						})
 					}
-					evtData := map[string]interface{}{
-						"button": buttonName,
-						"state":  state,
-					}
-					handler.PushEvent("button_event", evtData)
-					eventPipe.Push("button_event", evtData)
 				}
 			}
 		}

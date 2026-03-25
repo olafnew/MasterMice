@@ -77,6 +77,7 @@ func deviceLoopWithReconnect(ctx context.Context, connectFn func() (*hidpp.Devic
 	var device *hidpp.Device
 	var lastBattPoll time.Time
 	var lastBattEvent time.Time
+	var readCount int
 
 	for {
 		select {
@@ -127,6 +128,11 @@ func deviceLoopWithReconnect(ctx context.Context, connectFn func() (*hidpp.Devic
 		// Read notifications (non-blocking, 1s timeout)
 		report, err := device.Transport.Read(1 * time.Second)
 		if err != nil {
+			// DEBUG: log first 3 timeouts then every 30th
+			readCount++
+			if readCount <= 3 || readCount%30 == 0 {
+				fmt.Printf("[SVC-DBG] Read #%d: %v\n", readCount, err)
+			}
 			if err.Error() != "hidpp: request timed out" {
 				// Real error — device probably disconnected
 				fmt.Printf("[SVC] Device read error: %v — disconnected\n", err)
@@ -167,6 +173,14 @@ func deviceLoopWithReconnect(ctx context.Context, connectFn func() (*hidpp.Devic
 			continue
 		}
 
+		// DEBUG: log EVERY report before any filtering
+		pLen := len(report.Params)
+		if pLen > 6 {
+			pLen = 6
+		}
+		fmt.Printf("[SVC-RAW] feat=0x%02X func=%d sw=0x%X params=%02X\n",
+			report.FeatIdx, report.Func, report.SW, report.Params[:pLen])
+
 		// Skip our own responses
 		if report.SW == hidpp.MySW {
 			continue
@@ -190,41 +204,44 @@ func deviceLoopWithReconnect(ctx context.Context, connectFn func() (*hidpp.Devic
 
 		// Handle REPROG_V4 notifications
 		// Protocol (from Wireshark captures):
-		//   func=0: button event notification — params=[CID_hi, CID_lo, flags, ...]
-		//   func=1: divertedRawXY — params=[dx_hi, dx_lo, dy_hi, dy_lo] (NO CID prefix!)
-		//   func=2: divertedButtons — params=[CID_hi, CID_lo, pressed(0/1), ...]
-		//   func=3: divert config response
+		//   func=0: diverted_buttons_event — params = LIST of currently pressed CIDs
+		//           CID present = pressed, CID=0x0000 = all released
+		//   func=1: divertedRawXY — params=[dx_hi, dx_lo, dy_hi, dy_lo]
 		if device.ReprogIdx != 0 && report.FeatIdx == device.ReprogIdx {
 			switch report.Func {
 
-			case 0, 2:
-				// Button press/release events (both func=0 and func=2 carry CID + flags)
-				if len(report.Params) >= 3 {
+			case 0:
+				if len(report.Params) >= 2 {
 					cid := uint16(report.Params[0])<<8 | uint16(report.Params[1])
-					flags := report.Params[2]
-					pressed := (flags & 0x01) != 0
-
-					var buttonName string
-					switch cid {
-					case 0x01A0:
-						buttonName = "haptic_panel"
-					case 0x00C3:
-						buttonName = "gesture"
-					}
-
-					if buttonName != "" {
-						state := "up"
-						if pressed {
-							state = "down"
+					if cid != 0 {
+						var buttonName string
+						switch cid {
+						case 0x01A0:
+							buttonName = "haptic_panel"
+						case 0x00C3:
+							buttonName = "gesture"
 						}
-						evtData := map[string]interface{}{
-							"button": buttonName,
-							"state":  state,
-							"cid":    fmt.Sprintf("0x%04X", cid),
+						if buttonName != "" {
+							evtData := map[string]interface{}{
+								"button": buttonName,
+								"state":  "down",
+								"cid":    fmt.Sprintf("0x%04X", cid),
+							}
+							handler.PushEvent("button_event", evtData)
+							if eventPipe != nil {
+								eventPipe.Push("button_event", evtData)
+							}
 						}
-						handler.PushEvent("button_event", evtData)
-						if eventPipe != nil {
-							eventPipe.Push("button_event", evtData)
+					} else {
+						for _, btn := range []string{"gesture", "haptic_panel"} {
+							evtData := map[string]interface{}{
+								"button": btn,
+								"state":  "up",
+							}
+							handler.PushEvent("button_event", evtData)
+							if eventPipe != nil {
+								eventPipe.Push("button_event", evtData)
+							}
 						}
 					}
 				}

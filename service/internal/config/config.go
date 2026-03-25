@@ -243,7 +243,6 @@ func (c *Config) saveUnlocked() error {
 // migrate upgrades old config versions to current.
 func (c *Config) migrate() {
 	if c.Version < 5 {
-		// Set default actions for gesture and haptic_panel
 		for _, p := range c.Profiles {
 			if p.Mappings != nil {
 				if p.Mappings["haptic_panel"] == "none" || p.Mappings["haptic_panel"] == "" {
@@ -255,6 +254,25 @@ func (c *Config) migrate() {
 			}
 		}
 		c.Version = 5
+	}
+	if c.Version < 6 {
+		// v5→v6: set default gesture direction actions
+		gestureDefaults := map[string]string{
+			"gesture_left":  "virtual_desktop_left",
+			"gesture_right": "virtual_desktop_right",
+			"gesture_up":    "restore_all",
+			"gesture_down":  "minimize_all",
+		}
+		for _, p := range c.Profiles {
+			if p.Mappings != nil {
+				for key, action := range gestureDefaults {
+					if p.Mappings[key] == "none" || p.Mappings[key] == "" {
+						p.Mappings[key] = action
+					}
+				}
+			}
+		}
+		c.Version = 6
 	}
 }
 

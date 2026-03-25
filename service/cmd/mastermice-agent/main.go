@@ -25,6 +25,7 @@ import (
 
 	"github.com/olafnew/mastermice-svc/internal/appdetect"
 	"github.com/olafnew/mastermice-svc/internal/config"
+	"github.com/olafnew/mastermice-svc/internal/hidpp"
 	"github.com/olafnew/mastermice-svc/internal/input"
 )
 
@@ -115,13 +116,16 @@ func (g *gestureState) isActive() bool {
 }
 
 const (
-	version        = "0.3.0"
+	version        = "0.4.0"
 	mainPipeName   = `\\.\pipe\MasterMice`
 	eventPipeName  = `\\.\pipe\MasterMice-events`
 )
 
 func main() {
 	fmt.Printf("[mastermice-agent] v%s — user session agent\n", version)
+
+	// Kill ONLY old agent instances (never kill the service!)
+	hidpp.KillOldMasterMiceByName("mastermice-agent.exe")
 
 	// Load config for button mappings
 	cfg, err := config.Load()
@@ -177,10 +181,15 @@ func main() {
 
 	// Event reader goroutine — receives button events and executes actions
 	go func() {
+		fmt.Println("[Agent-DBG] Event reader goroutine started")
 		scanner := bufio.NewScanner(eventConn)
 		for scanner.Scan() {
 			line := scanner.Text()
+			fmt.Printf("[Agent-DBG] Raw line: %s\n", line[:min(80, len(line))])
 			handleEvent(cfg, line)
+		}
+		if err := scanner.Err(); err != nil {
+			fmt.Printf("[Agent] Event pipe error: %v\n", err)
 		}
 		fmt.Println("[Agent] Event pipe disconnected")
 		os.Exit(0)
@@ -226,11 +235,13 @@ func main() {
 func handleEvent(cfg *config.Config, line string) {
 	var msg map[string]interface{}
 	if err := json.Unmarshal([]byte(line), &msg); err != nil {
+		fmt.Printf("[Agent-DBG] JSON parse error: %v (line=%q)\n", err, line[:min(80, len(line))])
 		return
 	}
-
 	eventName, _ := msg["event"].(string)
 	data, _ := msg["data"].(map[string]interface{})
+	// DEBUG: log all received events
+	fmt.Printf("[Agent-DBG] Event received: %s\n", eventName)
 
 	switch eventName {
 	case "button_event":
