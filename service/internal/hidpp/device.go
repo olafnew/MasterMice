@@ -2,6 +2,7 @@ package hidpp
 
 import (
 	"fmt"
+	mlog "github.com/olafnew/mastermice-svc/internal/logging"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -58,20 +59,20 @@ func (d *Device) DiscoverFeatures() error {
 		} else {
 			d.BattType = "level"
 		}
-		fmt.Printf("[DEVICE] Battery (0x%04X) at index 0x%02X\n", p.BatteryFeatureID, d.BattIdx)
+		mlog.Printf("[DEVICE] Battery (0x%04X) at index 0x%02X\n", p.BatteryFeatureID, d.BattIdx)
 	}
 
 	// DPI
 	d.DPIIdx, _ = t.RequestIRoot(FeatAdjDPI)
 	if d.DPIIdx != 0 {
-		fmt.Printf("[DEVICE] DPI at index 0x%02X\n", d.DPIIdx)
+		mlog.Printf("[DEVICE] DPI at index 0x%02X\n", d.DPIIdx)
 	}
 
 	// SmartShift
 	d.SmartShiftIdx, _ = t.RequestIRoot(p.SmartShiftFeatID)
 	if d.SmartShiftIdx != 0 {
 		d.SmartShiftVer = p.SmartShiftVer
-		fmt.Printf("[DEVICE] SmartShift v%d at index 0x%02X\n", d.SmartShiftVer, d.SmartShiftIdx)
+		mlog.Printf("[DEVICE] SmartShift v%d at index 0x%02X\n", d.SmartShiftVer, d.SmartShiftIdx)
 	}
 
 	// Hi-Res Wheel (try v2 first, then v1)
@@ -80,7 +81,7 @@ func (d *Device) DiscoverFeatures() error {
 		d.HiResIdx, _ = t.RequestIRoot(FeatHiResWheel)
 	}
 	if d.HiResIdx != 0 {
-		fmt.Printf("[DEVICE] HiRes Wheel at index 0x%02X\n", d.HiResIdx)
+		mlog.Printf("[DEVICE] HiRes Wheel at index 0x%02X\n", d.HiResIdx)
 	}
 
 	// Smooth Scroll — often on the same feature index as HiRes wheel
@@ -93,17 +94,17 @@ func (d *Device) DiscoverFeatures() error {
 		}
 	}
 	if d.ScrollCtrlIdx != 0 {
-		fmt.Printf("[DEVICE] Scroll Control at index 0x%02X\n", d.ScrollCtrlIdx)
+		mlog.Printf("[DEVICE] Scroll Control at index 0x%02X\n", d.ScrollCtrlIdx)
 	}
 
 	// Haptic motor (MX4 only)
 	if p.HasHaptics && p.HapticFeatureID != 0 {
 		d.HapticIdx, _ = t.RequestIRoot(p.HapticFeatureID)
 		if d.HapticIdx != 0 {
-			fmt.Printf("[DEVICE] Haptic (0x%04X) at index 0x%02X\n", p.HapticFeatureID, d.HapticIdx)
+			mlog.Printf("[DEVICE] Haptic (0x%04X) at index 0x%02X\n", p.HapticFeatureID, d.HapticIdx)
 			// Open SHORT handle for haptic commands
 			if err := d.OpenShortHandle(); err != nil {
-				fmt.Printf("[DEVICE] WARNING: Haptic SHORT handle failed: %v\n", err)
+				mlog.Printf("[DEVICE] WARNING: Haptic SHORT handle failed: %v\n", err)
 			}
 		}
 	}
@@ -112,7 +113,7 @@ func (d *Device) DiscoverFeatures() error {
 	if p.HasButtonSens && p.ButtonSensFeatID != 0 {
 		d.ButtonSensIdx, _ = t.RequestIRoot(p.ButtonSensFeatID)
 		if d.ButtonSensIdx != 0 {
-			fmt.Printf("[DEVICE] Button Sensitivity (0x%04X) at index 0x%02X\n",
+			mlog.Printf("[DEVICE] Button Sensitivity (0x%04X) at index 0x%02X\n",
 				p.ButtonSensFeatID, d.ButtonSensIdx)
 		}
 	}
@@ -120,7 +121,7 @@ func (d *Device) DiscoverFeatures() error {
 	// REPROG_V4
 	d.ReprogIdx, _ = t.RequestIRoot(FeatReprogV4)
 	if d.ReprogIdx != 0 {
-		fmt.Printf("[DEVICE] REPROG_V4 at index 0x%02X\n", d.ReprogIdx)
+		mlog.Printf("[DEVICE] REPROG_V4 at index 0x%02X\n", d.ReprogIdx)
 		d.DivertButtons()
 	}
 
@@ -151,9 +152,9 @@ func (d *Device) DivertButtons() {
 		[]byte{byte(CIDGesture >> 8), byte(CIDGesture & 0xFF), 0x33},
 		2*time.Second)
 	if err != nil {
-		fmt.Printf("[DEVICE] Divert gesture (0x00C3) failed: %v\n", err)
+		mlog.Printf("[DEVICE] Divert gesture (0x00C3) failed: %v\n", err)
 	} else {
-		fmt.Println("[DEVICE] Divert gesture (0x00C3): OK (button + rawXY)")
+		mlog.Println("[DEVICE] Divert gesture (0x00C3): OK (button + rawXY)")
 	}
 
 	// Divert actions ring / haptic panel (CID 0x01A0) — button only, no rawXY needed
@@ -161,9 +162,9 @@ func (d *Device) DivertButtons() {
 		[]byte{byte(CIDActionsRing >> 8), byte(CIDActionsRing & 0xFF), 0x03},
 		2*time.Second)
 	if err != nil {
-		fmt.Printf("[DEVICE] Divert actions ring (0x01A0): not available (MX3)\n")
+		mlog.Printf("[DEVICE] Divert actions ring (0x01A0): not available (MX3)\n")
 	} else {
-		fmt.Println("[DEVICE] Divert actions ring (0x01A0): OK")
+		mlog.Println("[DEVICE] Divert actions ring (0x01A0): OK")
 	}
 }
 
@@ -225,7 +226,7 @@ func (d *Device) SetButtonSensitivity(preset uint16) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("[BTNSENS] Set to 0x%04X\n", preset)
+	mlog.Printf("[BTNSENS] Set to 0x%04X\n", preset)
 	return nil
 }
 
@@ -266,7 +267,7 @@ func (d *Device) SetDPI(dpi int) error {
 	if len(report.Params) >= 3 {
 		actual := int(report.Params[1])<<8 | int(report.Params[2])
 		d.CachedDPI = actual
-		fmt.Printf("[DPI] Set to %d (requested %d)\n", actual, dpi)
+		mlog.Printf("[DPI] Set to %d (requested %d)\n", actual, dpi)
 	}
 	return nil
 }

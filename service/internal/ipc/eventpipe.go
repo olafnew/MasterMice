@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	mlog "github.com/olafnew/mastermice-svc/internal/logging"
 	"net"
 	"sync"
 
@@ -41,7 +42,7 @@ func (ep *EventPipe) Run(ctx context.Context) error {
 	}
 	defer l.Close()
 
-	fmt.Printf("[EventPipe] Listening on %s\n", EventPipeName)
+	mlog.Printf("[EventPipe] Listening on %s\n", EventPipeName)
 
 	go func() {
 		<-ctx.Done()
@@ -55,7 +56,7 @@ func (ep *EventPipe) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			default:
-				fmt.Printf("[EventPipe] Accept error: %v\n", err)
+				mlog.Printf("[EventPipe] Accept error: %v\n", err)
 				continue
 			}
 		}
@@ -65,7 +66,7 @@ func (ep *EventPipe) Run(ctx context.Context) error {
 		count := len(ep.clients)
 		ep.mu.Unlock()
 
-		fmt.Printf("[EventPipe] Agent connected (%d total)\n", count)
+		mlog.Printf("[EventPipe] Agent connected (%d total)\n", count)
 
 		// Monitor for disconnect
 		go func(c net.Conn) {
@@ -76,7 +77,7 @@ func (ep *EventPipe) Run(ctx context.Context) error {
 			remaining := len(ep.clients)
 			ep.mu.Unlock()
 			c.Close()
-			fmt.Printf("[EventPipe] Agent disconnected (%d remaining)\n", remaining)
+			mlog.Printf("[EventPipe] Agent disconnected (%d remaining)\n", remaining)
 		}(conn)
 	}
 }

@@ -19,54 +19,61 @@ import (
 	"github.com/sstallion/go-hid"
 	hidpp "github.com/olafnew/mastermice-svc/internal/hidpp"
 	"github.com/olafnew/mastermice-svc/internal/ipc"
+	mlog "github.com/olafnew/mastermice-svc/internal/logging"
 	msvc "github.com/olafnew/mastermice-svc/internal/service"
 )
 
-const version = "0.6.0"
+const version = "0.6.5"
 
 func main() {
+	// Initialize shared logging FIRST — writes to %APPDATA%\MasterMice\mastermice.log
+	if err := mlog.Init("mastermice-svc"); err != nil {
+		fmt.Fprintf(os.Stderr, "logging init failed: %v\n", err)
+	}
+	defer mlog.Close()
+
 	// Handle service management commands (require admin)
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "install", "--install":
-			fmt.Printf("[mastermice-svc] v%s — installing service\n", version)
+			mlog.Printf("[mastermice-svc] v%s — installing service\n", version)
 			if err := msvc.Install(); err != nil {
-				fmt.Printf("[ERROR] %v\n", err)
+				mlog.Printf("[ERROR] %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Println("[OK] Service installed and started")
+			mlog.Println("[OK] Service installed and started")
 			os.Exit(0)
 
 		case "uninstall", "remove", "--uninstall", "--remove":
-			fmt.Printf("[mastermice-svc] v%s — uninstalling service\n", version)
+			mlog.Printf("[mastermice-svc] v%s — uninstalling service\n", version)
 			if err := msvc.Uninstall(); err != nil {
-				fmt.Printf("[ERROR] %v\n", err)
+				mlog.Printf("[ERROR] %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Println("[OK] Service removed")
+			mlog.Println("[OK] Service removed")
 			os.Exit(0)
 
 		case "start", "--start":
 			if err := msvc.StartService(); err != nil {
-				fmt.Printf("[ERROR] %v\n", err)
+				mlog.Printf("[ERROR] %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Println("[OK] Service started")
+			mlog.Println("[OK] Service started")
 			os.Exit(0)
 
 		case "stop", "--stop":
 			if err := msvc.StopService(); err != nil {
-				fmt.Printf("[ERROR] %v\n", err)
+				mlog.Printf("[ERROR] %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Println("[OK] Service stopped")
+			mlog.Println("[OK] Service stopped")
 			os.Exit(0)
 
 		case "status", "--status":
 			if msvc.IsInstalled() {
-				fmt.Println("installed")
+				mlog.Println("installed")
 			} else {
-				fmt.Println("not-installed")
+				mlog.Println("not-installed")
 			}
 			os.Exit(0)
 
@@ -74,14 +81,14 @@ func main() {
 			hidpp.Debug = true
 
 		case "version", "--version":
-			fmt.Printf("mastermice-svc v%s\n", version)
+			mlog.Printf("mastermice-svc v%s\n", version)
 			os.Exit(0)
 		}
 	}
 
-	// Kill old service + agent instances (except ourselves) BEFORE touching HID
+	// Kill old SERVICE instances only (except ourselves) BEFORE touching HID
+	// NEVER kill agents — only the agent manages its own instances
 	hidpp.KillOldMasterMiceByName("mastermice-svc.exe")
-	hidpp.KillOldMasterMiceByName("mastermice-agent.exe")
 
 	if err := hid.Init(); err != nil {
 		log.Fatalf("[ERROR] hidapi init failed: %v", err)
@@ -97,7 +104,7 @@ func main() {
 	}
 
 	// Console mode (launched directly or by the app)
-	fmt.Printf("[mastermice-svc] v%s — console mode\n", version)
+	mlog.Printf("[mastermice-svc] v%s — console mode\n", version)
 	runConsole()
 }
 
@@ -105,14 +112,14 @@ func main() {
 func fullConnect() (*hidpp.Device, error) {
 	running := hidpp.CheckLogitechSoftware()
 	if len(running) > 0 {
-		fmt.Printf("[LOGI] Detected: %s\n", strings.Join(running, ", "))
+		mlog.Printf("[LOGI] Detected: %s\n", strings.Join(running, ", "))
 		result := hidpp.KillLogitechSoftware()
 		if len(result.KilledProcesses) > 0 || len(result.StoppedServices) > 0 {
-			fmt.Println("[LOGI] Waiting for handles to release...")
-			time.Sleep(1 * time.Second)
+			mlog.Println("[LOGI] Waiting for handles to release...")
+			time.Sleep(500 * time.Millisecond)
 		}
 	} else {
-		fmt.Println("[LOGI] No conflicting Logitech software detected")
+		mlog.Println("[LOGI] No conflicting Logitech software detected")
 	}
 	return connectDevice()
 }
@@ -139,19 +146,19 @@ func runConsole() {
 
 	go func() {
 		if err := pipeServer.Run(ctx); err != nil {
-			fmt.Printf("[IPC] Server error: %v\n", err)
+			mlog.Printf("[IPC] Server error: %v\n", err)
 		}
 	}()
 	go func() {
 		if err := eventPipe.Run(ctx); err != nil {
-			fmt.Printf("[EventPipe] Error: %v\n", err)
+			mlog.Printf("[EventPipe] Error: %v\n", err)
 		}
 	}()
 
 	// Device notification loop (reads HID++ events, pushes to event pipe)
 	go deviceNotificationLoop(ctx, device, handler, broadcaster, eventPipe)
 
-	fmt.Println("[COMMANDS] dpi <value> | smartshift <threshold> | hires on|off | smooth on|off | battery | status | quit")
+	mlog.Println("[COMMANDS] dpi <value> | smartshift <threshold> | hires on|off | smooth on|off | battery | status | quit")
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
@@ -168,7 +175,7 @@ func runConsole() {
 		fmt.Print("> ")
 		select {
 		case <-sig:
-			fmt.Println("\n[INFO] Shutting down")
+			mlog.Println("\n[INFO] Shutting down")
 			return
 		case line := <-inputCh:
 			if handleCommand(device, strings.TrimSpace(line)) {
@@ -187,118 +194,118 @@ func handleCommand(d *hidpp.Device, line string) bool {
 	cmd := strings.ToLower(parts[0])
 	switch cmd {
 	case "quit", "exit", "q":
-		fmt.Println("[INFO] Shutting down")
+		mlog.Println("[INFO] Shutting down")
 		return true
 
 	case "dpi":
 		if len(parts) < 2 {
-			fmt.Println("Usage: dpi <value>  (200-8000)")
+			mlog.Println("Usage: dpi <value>  (200-8000)")
 			return false
 		}
 		val, err := strconv.Atoi(parts[1])
 		if err != nil {
-			fmt.Printf("Invalid DPI: %v\n", err)
+			mlog.Printf("Invalid DPI: %v\n", err)
 			return false
 		}
 		if err := d.SetDPI(val); err != nil {
-			fmt.Printf("[ERROR] %v\n", err)
+			mlog.Printf("[ERROR] %v\n", err)
 		}
 
 	case "smartshift", "ss":
 		if len(parts) < 2 {
-			fmt.Println("Usage: smartshift <threshold 1-50> | smartshift off")
+			mlog.Println("Usage: smartshift <threshold 1-50> | smartshift off")
 			return false
 		}
 		if parts[1] == "off" {
 			if err := d.SetSmartShift(10, 50, false); err != nil {
-				fmt.Printf("[ERROR] %v\n", err)
+				mlog.Printf("[ERROR] %v\n", err)
 			} else {
-				fmt.Println("[SMARTSHIFT] Disabled (free-spin)")
+				mlog.Println("[SMARTSHIFT] Disabled (free-spin)")
 			}
 		} else {
 			val, err := strconv.Atoi(parts[1])
 			if err != nil {
-				fmt.Printf("Invalid threshold: %v\n", err)
+				mlog.Printf("Invalid threshold: %v\n", err)
 				return false
 			}
 			if err := d.SetSmartShift(val, 50, true); err != nil {
-				fmt.Printf("[ERROR] %v\n", err)
+				mlog.Printf("[ERROR] %v\n", err)
 			} else {
-				fmt.Printf("[SMARTSHIFT] Set threshold to %d\n", val)
+				mlog.Printf("[SMARTSHIFT] Set threshold to %d\n", val)
 			}
 		}
 
 	case "hires", "hr":
 		if len(parts) < 2 {
-			fmt.Println("Usage: hires on|off")
+			mlog.Println("Usage: hires on|off")
 			return false
 		}
 		on := parts[1] == "on" || parts[1] == "1" || parts[1] == "true"
 		if err := d.SetHiResWheel(&on, nil); err != nil {
-			fmt.Printf("[ERROR] %v\n", err)
+			mlog.Printf("[ERROR] %v\n", err)
 		} else {
-			fmt.Printf("[HIRES] Set to %v\n", on)
+			mlog.Printf("[HIRES] Set to %v\n", on)
 		}
 
 	case "smooth", "sm":
 		if len(parts) < 2 {
-			fmt.Println("Usage: smooth on|off")
+			mlog.Println("Usage: smooth on|off")
 			return false
 		}
 		on := parts[1] == "on" || parts[1] == "1" || parts[1] == "true"
 		if err := d.SetSmoothScroll(on); err != nil {
-			fmt.Printf("[ERROR] %v\n", err)
+			mlog.Printf("[ERROR] %v\n", err)
 		} else {
-			fmt.Printf("[SMOOTH] Set to %v\n", on)
+			mlog.Printf("[SMOOTH] Set to %v\n", on)
 		}
 
 	case "battery", "batt":
 		batt, err := d.ReadBattery()
 		if err != nil {
-			fmt.Printf("[ERROR] %v\n", err)
+			mlog.Printf("[ERROR] %v\n", err)
 		} else {
-			fmt.Printf("[BATTERY] %d%%, charging=%v\n", batt.Level, batt.Charging)
+			mlog.Printf("[BATTERY] %d%%, charging=%v\n", batt.Level, batt.Charging)
 		}
 
 	case "status", "st":
 		printDeviceState(d)
 
 	default:
-		fmt.Println("[COMMANDS] dpi <value> | smartshift <threshold>|off | hires on|off | smooth on|off | battery | status | quit")
+		mlog.Println("[COMMANDS] dpi <value> | smartshift <threshold>|off | hires on|off | smooth on|off | battery | status | quit")
 	}
 
 	return false
 }
 
 func printDeviceState(d *hidpp.Device) {
-	fmt.Printf("\n── %s (%s) ──\n", d.Name, d.ModelKey)
+	mlog.Printf("\n── %s (%s) ──\n", d.Name, d.ModelKey)
 	if d.Profile != nil {
-		fmt.Printf("   Max DPI: %d | SmartShift v%d | Haptics: %v\n",
+		mlog.Printf("   Max DPI: %d | SmartShift v%d | Haptics: %v\n",
 			d.Profile.DPIMax, d.Profile.SmartShiftVer, d.Profile.HasHaptics)
 	}
 
 	if batt, err := d.ReadBattery(); err == nil {
-		fmt.Printf("   Battery: %d%% (charging=%v)\n", batt.Level, batt.Charging)
+		mlog.Printf("   Battery: %d%% (charging=%v)\n", batt.Level, batt.Charging)
 	}
 	if dpi, err := d.ReadDPI(); err == nil {
-		fmt.Printf("   DPI: %d\n", dpi)
+		mlog.Printf("   DPI: %d\n", dpi)
 	}
 	if ss, err := d.GetSmartShift(); err == nil {
 		if d.SmartShiftVer == 2 {
-			fmt.Printf("   SmartShift: enabled=%v threshold=%d force=%d\n",
+			mlog.Printf("   SmartShift: enabled=%v threshold=%d force=%d\n",
 				ss.Enabled, ss.Threshold, ss.Force)
 		} else {
-			fmt.Printf("   SmartShift: enabled=%v threshold=%d\n",
+			mlog.Printf("   SmartShift: enabled=%v threshold=%d\n",
 				ss.Enabled, ss.Threshold)
 		}
 	}
 	if hr, err := d.GetHiResWheel(); err == nil {
-		fmt.Printf("   HiRes: %v (invert=%v)\n", hr.HiRes, hr.Invert)
+		mlog.Printf("   HiRes: %v (invert=%v)\n", hr.HiRes, hr.Invert)
 	}
 	if sm, err := d.GetSmoothScroll(); err == nil {
-		fmt.Printf("   Smooth: %v\n", sm)
+		mlog.Printf("   Smooth: %v\n", sm)
 	}
-	fmt.Println()
+	mlog.Println()
 }
 
 // ── Device discovery ─────────────────────────────────────────────
@@ -328,7 +335,7 @@ func connectDevice() (*hidpp.Device, error) {
 	if len(allInfos) == 0 {
 		return nil, fmt.Errorf("no Logitech HID devices found")
 	}
-	fmt.Printf("[ENUM] Found %d Logitech HID interfaces\n", len(allInfos))
+	mlog.Printf("[ENUM] Found %d Logitech HID interfaces\n", len(allInfos))
 
 	var candidates []hidInfo
 	for _, info := range allInfos {
@@ -348,11 +355,11 @@ func connectDevice() (*hidpp.Device, error) {
 	})
 
 	for _, info := range candidates {
-		fmt.Printf("[ENUM] Trying: PID=0x%04X usage=0x%04X\n", info.PID, info.Usage)
+		mlog.Printf("[ENUM] Trying: PID=0x%04X usage=0x%04X\n", info.PID, info.Usage)
 
 		dev, err := hid.OpenPath(info.Path)
 		if err != nil {
-			fmt.Printf("[ENUM]   Could not open: %v\n", err)
+			mlog.Printf("[ENUM]   Could not open: %v\n", err)
 			continue
 		}
 
@@ -363,12 +370,12 @@ func connectDevice() (*hidpp.Device, error) {
 		var alive []byte
 		for _, idx := range indices {
 			transport.SetDevIdx(idx)
-			fmt.Printf("[ENUM]   Probing 0x%02X...", idx)
-			if transport.Probe(0x00, hidpp.FeatReprogV4, 500*time.Millisecond) {
-				fmt.Printf(" FOUND\n")
+			mlog.Printf("[ENUM]   Probing 0x%02X...", idx)
+			if transport.Probe(0x00, hidpp.FeatReprogV4, 250*time.Millisecond) {
+				mlog.Printf(" FOUND\n")
 				alive = append(alive, idx)
 			} else {
-				fmt.Printf(" -\n")
+				mlog.Printf(" -\n")
 			}
 		}
 
@@ -389,12 +396,12 @@ func connectDevice() (*hidpp.Device, error) {
 			if profile == nil {
 				lower := strings.ToLower(name)
 				if !strings.Contains(lower, "mouse") && !strings.Contains(lower, "master") {
-					fmt.Printf("[ENUM]   Index 0x%02X: %q — not a mouse, skip\n", idx, name)
+					mlog.Printf("[ENUM]   Index 0x%02X: %q — not a mouse, skip\n", idx, name)
 					continue
 				}
 			}
 
-			fmt.Printf("[ENUM] Connected: %q at index 0x%02X\n", name, idx)
+			mlog.Printf("[ENUM] Connected: %q at index 0x%02X\n", name, idx)
 
 			device := &hidpp.Device{
 				Transport: transport,
@@ -406,7 +413,7 @@ func connectDevice() (*hidpp.Device, error) {
 				NameIdx:   nameIdx,
 			}
 
-			fmt.Println("[DEVICE] Discovering features...")
+			mlog.Println("[DEVICE] Discovering features...")
 			device.DiscoverFeatures()
 
 			return device, nil
@@ -457,19 +464,9 @@ func deviceNotificationLoop(ctx context.Context, d *hidpp.Device,
 		report, err := d.Transport.Read(1 * time.Second)
 		if err != nil {
 			readCount++
-			if readCount <= 3 || readCount%30 == 0 {
-				fmt.Printf("[NOTIF-DBG] Read #%d: %v\n", readCount, err)
-			}
+		_ = readCount
 			continue
 		}
-
-		// Log ALL reports for debugging
-		pLen := len(report.Params)
-		if pLen > 6 {
-			pLen = 6
-		}
-		fmt.Printf("[NOTIF] feat=0x%02X func=%d sw=0x%X params=%02X\n",
-			report.FeatIdx, report.Func, report.SW, report.Params[:pLen])
 
 		if report.SW == hidpp.MySW {
 			continue

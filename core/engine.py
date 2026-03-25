@@ -270,7 +270,7 @@ class Engine:
         self._app_detector.start()
         self._svc_watchdog_stop = threading.Event()
 
-        EXPECTED_SVC_VERSION = "0.5.0"
+        EXPECTED_SVC_VERSION = "0.6.5"
 
         # Connect to the Go service (auto-launch if needed)
         def _connect_service():
@@ -293,6 +293,8 @@ class Engine:
                     from core.config import APP_VERSION
                     print(f"[Engine] App v{APP_VERSION}, Service v{svc_ver}")
                     self.service_version = svc_ver
+                    # Always ensure agent is running (may have died since last session)
+                    self._ensure_agent_running()
                     self._read_initial_state()
                     self._start_watchdog()
                     return
@@ -301,8 +303,8 @@ class Engine:
             print("[Engine] Starting service...")
             svc_path = self._find_and_launch_service()
             if svc_path:
-                for attempt in range(15):
-                    time.sleep(1)
+                for attempt in range(30):
+                    time.sleep(0.5)
                     if self.svc.connect():
                         print(f"[Engine] Connected to service (attempt {attempt + 1})")
                         # Cache version from fresh service
@@ -478,7 +480,7 @@ class Engine:
 
         # Wait for the named pipe to disappear (confirms the old process released resources)
         pipe_path = r'\\.\pipe\MasterMice'
-        for i in range(20):  # up to 4 seconds
+        for i in range(40):  # up to 8 seconds
             try:
                 # Try to check if pipe exists by attempting to open it
                 import ctypes
@@ -494,7 +496,48 @@ class Engine:
                 return
             time.sleep(0.2)
 
-        print("[Engine] Warning: old service pipe still active after 4s")
+        print("[Engine] Warning: old service pipe still active after 8s")
+
+    def _ensure_agent_running(self):
+        """Ensure an agent process is running. Only launches if not already present.
+        Does NOT kill existing agents — they self-manage via KillOldMasterMiceByName.
+        If a full restart was needed (service version mismatch), _find_and_launch_service
+        handles killing everything."""
+        import sys, os, subprocess
+        CREATE_NO_WINDOW = 0x08000000
+
+        # Check if agent is already running
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq mastermice-agent.exe", "/NH", "/FO", "CSV"],
+                capture_output=True, timeout=3, creationflags=CREATE_NO_WINDOW,
+            )
+            if b"mastermice-agent.exe" in result.stdout:
+                print("[Engine] Agent already running — not relaunching")
+                return
+        except Exception:
+            pass
+
+        # Agent not running — launch it
+        if getattr(sys, "frozen", False):
+            app_dir = os.path.dirname(sys.executable)
+            candidates = [
+                os.path.join(app_dir, "_internal", "mastermice-agent.exe"),
+                os.path.join(app_dir, "mastermice-agent.exe"),
+            ]
+        else:
+            root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            candidates = [os.path.join(root, "service", "mastermice-agent.exe")]
+
+        for path in candidates:
+            path = os.path.abspath(path)
+            if os.path.isfile(path):
+                try:
+                    subprocess.Popen([path], creationflags=CREATE_NO_WINDOW)
+                    print(f"[Engine] Agent launched: {path}")
+                except Exception as e:
+                    print(f"[Engine] Failed to launch agent: {e}")
+                break
 
     def _find_service_exe(self):
         """Return path to mastermice-svc.exe, or None."""
@@ -542,24 +585,28 @@ class Engine:
             svc_candidates = [os.path.join(root, "service", "mastermice-svc.exe")]
             agent_candidates = [os.path.join(root, "service", "mastermice-agent.exe")]
 
+        # Go binaries write to the shared log file THEMSELVES
+        # (via internal/logging package). No stdout redirect needed.
         svc_path = None
         for path in svc_candidates:
             path = os.path.abspath(path)
             if os.path.isfile(path):
                 try:
-                    subprocess.Popen([path], creationflags=CREATE_NO_WINDOW, close_fds=True)
+                    subprocess.Popen([path],
+                                     creationflags=CREATE_NO_WINDOW)
                     print(f"[Engine] Launched service: {path}")
                     svc_path = path
                 except Exception as e:
                     print(f"[Engine] Failed to launch service: {e}")
                 break
 
-        # Launch agent (handles button actions + app detection)
+        # Launch agent — writes to shared log file itself
         for path in agent_candidates:
             path = os.path.abspath(path)
             if os.path.isfile(path):
                 try:
-                    subprocess.Popen([path], creationflags=CREATE_NO_WINDOW, close_fds=True)
+                    subprocess.Popen([path],
+                                     creationflags=CREATE_NO_WINDOW)
                     print(f"[Engine] Launched agent: {path}")
                 except Exception as e:
                     print(f"[Engine] Failed to launch agent: {e}")

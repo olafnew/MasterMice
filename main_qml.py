@@ -473,6 +473,18 @@ def main():
     # User must use "Quit MasterMice" from tray menu to fully exit.
     app.setQuitOnLastWindowClosed(False)
 
+    # Override close event from Python — the QML onClosing handler may fail
+    # on some PySide6 builds with "Cannot call meta function slot(QQuickCloseEvent*)"
+    from PySide6.QtCore import QEvent
+    class CloseFilter(QObject):
+        def eventFilter(self, obj, event):
+            if event.type() == QEvent.Type.Close:
+                obj.hide()  # hide instead of close
+                return True  # consume the event
+            return False
+    _close_filter = CloseFilter()
+    root_window.installEventFilter(_close_filter)
+
     # ── Run ────────────────────────────────────────────────────
     try:
         sys.exit(app.exec())

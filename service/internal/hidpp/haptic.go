@@ -2,6 +2,7 @@ package hidpp
 
 import (
 	"fmt"
+	mlog "github.com/olafnew/mastermice-svc/internal/logging"
 	"time"
 	"unsafe"
 
@@ -52,7 +53,7 @@ func (d *Device) OpenShortHandle() error {
 	}
 
 	d.ShortHandle = h
-	fmt.Printf("[HAPTIC] SHORT handle opened (PID=0x%04X)\n", d.ConnPID)
+	mlog.Printf("[HAPTIC] SHORT handle opened (PID=0x%04X)\n", d.ConnPID)
 	return nil
 }
 
@@ -84,7 +85,7 @@ func (d *Device) sendShort(report [7]byte) error {
 
 	// Handle may be stale (USB suspend/resume, device reconnect).
 	// Close, reopen, and retry once.
-	fmt.Println("[HAPTIC] SetOutputReport failed — handle may be stale, reopening...")
+	mlog.Println("[HAPTIC] SetOutputReport failed — handle may be stale, reopening...")
 	d.CloseShortHandle()
 	if err := d.OpenShortHandle(); err != nil {
 		return fmt.Errorf("SHORT handle reopen failed: %w", err)
@@ -98,7 +99,7 @@ func (d *Device) sendShort(report [7]byte) error {
 	if ret == 0 {
 		return fmt.Errorf("HidD_SetOutputReport failed after reopen")
 	}
-	fmt.Println("[HAPTIC] Retry succeeded with new handle")
+	mlog.Println("[HAPTIC] Retry succeeded with new handle")
 	return nil
 }
 
@@ -134,7 +135,7 @@ func (d *Device) HapticSetConfig(enabled bool, intensity int) error {
 	}
 	d.CachedHapticEnabled = enabled
 	d.CachedHapticIntensity = intensity
-	fmt.Printf("[HAPTIC] Config: %s intensity=%d%%\n",
+	mlog.Printf("[HAPTIC] Config: %s intensity=%d%%\n",
 		map[bool]string{true: "ON", false: "OFF"}[enabled], intensity)
 	return nil
 }

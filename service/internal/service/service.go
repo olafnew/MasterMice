@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"fmt"
+	mlog "github.com/olafnew/mastermice-svc/internal/logging"
 	"time"
 
 	"golang.org/x/sys/windows/svc"
@@ -35,12 +36,12 @@ func (s *MasterMiceSvc) Execute(args []string, r <-chan svc.ChangeRequest, chang
 
 	go func() {
 		if err := pipeServer.Run(ctx); err != nil {
-			fmt.Printf("[SVC] Pipe server error: %v\n", err)
+			mlog.Printf("[SVC] Pipe server error: %v\n", err)
 		}
 	}()
 	go func() {
 		if err := eventPipe.Run(ctx); err != nil {
-			fmt.Printf("[SVC] Event pipe error: %v\n", err)
+			mlog.Printf("[SVC] Event pipe error: %v\n", err)
 		}
 	}()
 
@@ -49,13 +50,13 @@ func (s *MasterMiceSvc) Execute(args []string, r <-chan svc.ChangeRequest, chang
 
 	const accepted = svc.AcceptStop | svc.AcceptShutdown
 	changes <- svc.Status{State: svc.Running, Accepts: accepted}
-	fmt.Println("[SVC] Running")
+	mlog.Println("[SVC] Running")
 
 	for {
 		c := <-r
 		switch c.Cmd {
 		case svc.Stop, svc.Shutdown:
-			fmt.Println("[SVC] Stop requested")
+			mlog.Println("[SVC] Stop requested")
 			changes <- svc.Status{State: svc.StopPending}
 			cancel()
 			time.Sleep(500 * time.Millisecond)
@@ -88,10 +89,10 @@ func deviceLoopWithReconnect(ctx context.Context, connectFn func() (*hidpp.Devic
 
 		// Connect if no device
 		if device == nil {
-			fmt.Println("[SVC] Connecting to device...")
+			mlog.Println("[SVC] Connecting to device...")
 			d, err := connectFn()
 			if err != nil {
-				fmt.Printf("[SVC] Connection failed: %v — retrying in 5s\n", err)
+				mlog.Printf("[SVC] Connection failed: %v — retrying in 5s\n", err)
 				select {
 				case <-ctx.Done():
 					return
@@ -101,7 +102,7 @@ func deviceLoopWithReconnect(ctx context.Context, connectFn func() (*hidpp.Devic
 			}
 			device = d
 			handler.SetDevice(device)
-			fmt.Printf("[SVC] Device connected: %s\n", device.Name)
+			mlog.Printf("[SVC] Device connected: %s\n", device.Name)
 
 			// Broadcast connected event
 			broadcaster.Broadcast(&ipc.Event{
@@ -131,11 +132,11 @@ func deviceLoopWithReconnect(ctx context.Context, connectFn func() (*hidpp.Devic
 			// DEBUG: log first 3 timeouts then every 30th
 			readCount++
 			if readCount <= 3 || readCount%30 == 0 {
-				fmt.Printf("[SVC-DBG] Read #%d: %v\n", readCount, err)
+				mlog.Printf("[SVC-DBG] Read #%d: %v\n", readCount, err)
 			}
 			if err.Error() != "hidpp: request timed out" {
 				// Real error — device probably disconnected
-				fmt.Printf("[SVC] Device read error: %v — disconnected\n", err)
+				mlog.Printf("[SVC] Device read error: %v — disconnected\n", err)
 				device.CloseShortHandle()
 				device.Transport.Close()
 				device = nil
@@ -146,7 +147,7 @@ func deviceLoopWithReconnect(ctx context.Context, connectFn func() (*hidpp.Devic
 					Data:  map[string]interface{}{},
 				})
 
-				fmt.Println("[SVC] Will retry connection in 5s...")
+				mlog.Println("[SVC] Will retry connection in 5s...")
 				select {
 				case <-ctx.Done():
 					return
@@ -178,7 +179,7 @@ func deviceLoopWithReconnect(ctx context.Context, connectFn func() (*hidpp.Devic
 		if pLen > 6 {
 			pLen = 6
 		}
-		fmt.Printf("[SVC-RAW] feat=0x%02X func=%d sw=0x%X params=%02X\n",
+		mlog.Printf("[SVC-RAW] feat=0x%02X func=%d sw=0x%X params=%02X\n",
 			report.FeatIdx, report.Func, report.SW, report.Params[:pLen])
 
 		// Skip our own responses

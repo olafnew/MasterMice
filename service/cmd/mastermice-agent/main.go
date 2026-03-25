@@ -27,27 +27,43 @@ import (
 	"github.com/olafnew/mastermice-svc/internal/config"
 	"github.com/olafnew/mastermice-svc/internal/hidpp"
 	"github.com/olafnew/mastermice-svc/internal/input"
+	mlog "github.com/olafnew/mastermice-svc/internal/logging"
 )
 
-// ── Gesture state machine ─────────────────────────────────────
-// Tracks hold+move+release for gesture buttons (gesture, haptic_panel).
-// When a gesture-enabled button is pressed:
-//   1. Start accumulating dx/dy from gesture_move events
-//   2. On release: if movement > threshold → fire swipe action, else fire click action
+// ── Gesture state machine (continuous detection) ─────────────
+// Fires actions DURING hold when movement crosses threshold — no need to release.
+// Like Logitech Options+: swipe right = instant desktop switch, keep swiping = switch again.
+//
+// Logic:
+//   1. Button down → start tracking, record timestamp
+//   2. Each gesture_move → accumulate dx/dy, check threshold
+//      - If |accumulated| > swipeThreshold → fire action, reset accumulator, set swipeOccurred
+//      - Skip first sample (noise spike from accumulated sensor data during press)
+//   3. Button up:
+//      - If swipeOccurred → do nothing (already handled)
+//      - If !swipeOccurred AND holdTime < clickMaxMs AND totalMovement < clickDeadzone → fire click
+//      - Otherwise → aborted gesture (ignored)
 type gestureState struct {
-	mu        sync.Mutex
-	active    bool       // currently tracking a gesture
-	button    string     // which button started it ("gesture" or "haptic_panel")
-	startTime time.Time
-	totalDX   int
-	totalDY   int
+	mu             sync.Mutex
+	active         bool
+	button         string
+	startTime      time.Time
+	totalDX        float64   // accumulated filtered movement since last action fire
+	totalDY        float64
+	swipeOccurred  bool      // at least one swipe was fired during this hold
+	sampleCount    int       // number of gesture_move samples received
+	totalMovement  float64   // total absolute movement (for click detection)
+	kalman         *KalmanFilter2D
 }
 
-var gesture = &gestureState{}
+var gesture = &gestureState{
+	kalman: NewKalmanFilter2D(),
+}
 
 const (
-	gestureThreshold = 300   // minimum total movement to count as swipe (in raw units)
-	gestureDeadzone  = 0.35  // max cross-axis ratio before rejecting as diagonal
+	swipeThreshold = 150.0  // accumulated FILTERED movement to trigger a swipe action
+	clickMaxMs     = 300    // max hold duration for a click (milliseconds)
+	clickDeadzone  = 50.0   // max total filtered movement for a click
 )
 
 func (g *gestureState) start(button string) {
@@ -58,55 +74,88 @@ func (g *gestureState) start(button string) {
 	g.startTime = time.Now()
 	g.totalDX = 0
 	g.totalDY = 0
+	g.swipeOccurred = false
+	g.sampleCount = 0
+	g.totalMovement = 0
+	g.kalman.Reset()
 }
 
-func (g *gestureState) accumulate(dx, dy int) {
+// accumulate processes a raw dx/dy sample through the Kalman filter and checks
+// if the filtered accumulation has crossed the swipe threshold.
+// Returns: direction ("left"/"right"/"up"/"down") if threshold crossed, "" otherwise.
+func (g *gestureState) accumulate(dx, dy int) string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !g.active {
-		return
+		return ""
 	}
-	g.totalDX += dx
-	g.totalDY += dy
+
+	g.sampleCount++
+
+	// Run raw measurement through Kalman filter — outputs smooth, noise-free velocity
+	filteredDX, filteredDY := g.kalman.Update(float64(dx), float64(dy))
+
+	// Accumulate FILTERED values (not raw)
+	g.totalDX += filteredDX
+	g.totalDY += filteredDY
+	g.totalMovement += math.Abs(filteredDX) + math.Abs(filteredDY)
+
+	// Check if we've crossed the swipe threshold
+	absDX := math.Abs(g.totalDX)
+	absDY := math.Abs(g.totalDY)
+	dominant := math.Max(absDX, absDY)
+
+	if dominant >= swipeThreshold {
+		var direction string
+		if absDX > absDY {
+			if g.totalDX > 0 {
+				direction = "right"
+			} else {
+				direction = "left"
+			}
+		} else {
+			if g.totalDY > 0 {
+				direction = "down"
+			} else {
+				direction = "up"
+			}
+		}
+
+		// Reset accumulator for the next potential swipe (allows repeated desktop switching)
+		g.totalDX = 0
+		g.totalDY = 0
+		g.swipeOccurred = true
+
+		return direction
+	}
+
+	return ""
 }
 
-// finish returns the detected swipe direction or "click" if no significant movement.
-// Returns: "left", "right", "up", "down", or "click"
+// finish handles button release. Returns (button, "click") if it was a short still press,
+// or (button, "") if swipe already handled or gesture was aborted.
 func (g *gestureState) finish() (button string, direction string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !g.active {
-		return "", "click"
+		return "", ""
 	}
 	g.active = false
 	btn := g.button
 
-	absDX := math.Abs(float64(g.totalDX))
-	absDY := math.Abs(float64(g.totalDY))
-	dominant := math.Max(absDX, absDY)
-	cross := math.Min(absDX, absDY)
+	// If a swipe was already fired during hold → nothing to do on release
+	if g.swipeOccurred {
+		return btn, ""
+	}
 
-	// Not enough movement → click
-	if dominant < gestureThreshold {
+	// Check if this qualifies as a click: short hold + minimal movement
+	holdMs := time.Since(g.startTime).Milliseconds()
+	if holdMs <= clickMaxMs && g.totalMovement < clickDeadzone {
 		return btn, "click"
 	}
 
-	// Too diagonal → click (cross-axis must be < 35% of dominant)
-	if dominant > 0 && cross/dominant > gestureDeadzone {
-		return btn, "click"
-	}
-
-	// Determine direction
-	if absDX > absDY {
-		if g.totalDX > 0 {
-			return btn, "right"
-		}
-		return btn, "left"
-	}
-	if g.totalDY > 0 {
-		return btn, "down"
-	}
-	return btn, "up"
+	// Aborted gesture — held too long or moved but not enough for a swipe
+	return btn, ""
 }
 
 func (g *gestureState) isActive() bool {
@@ -116,13 +165,20 @@ func (g *gestureState) isActive() bool {
 }
 
 const (
-	version        = "0.4.0"
+	version        = "0.9.1"
 	mainPipeName   = `\\.\pipe\MasterMice`
 	eventPipeName  = `\\.\pipe\MasterMice-events`
+	agentPipeName  = `\\.\pipe\MasterMice-agent`
 )
 
 func main() {
-	fmt.Printf("[mastermice-agent] v%s — user session agent\n", version)
+	// Initialize shared logging FIRST
+	if err := mlog.Init("mastermice-agent"); err != nil {
+		fmt.Fprintf(os.Stderr, "logging init failed: %v\n", err)
+	}
+	defer mlog.Close()
+
+	mlog.Printf("[mastermice-agent] v%s — user session agent\n", version)
 
 	// Kill ONLY old agent instances (never kill the service!)
 	hidpp.KillOldMasterMiceByName("mastermice-agent.exe")
@@ -130,29 +186,34 @@ func main() {
 	// Load config for button mappings
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Printf("[WARN] Config load failed: %v — using defaults\n", err)
+		mlog.Printf("[WARN] Config load failed: %v — using defaults\n", err)
 		cfg = config.DefaultConfig()
 	}
-	fmt.Printf("[Agent] Config loaded: %d profiles, active=%s\n",
+	mlog.Printf("[Agent] Config loaded: %d profiles, active=%s\n",
 		len(cfg.Profiles), cfg.ActiveProfile)
+
+	// Start agent health/version IPC server (for version checking by the Python app)
+	go runAgentHealthServer()
 
 	// Connect to event pipe (push stream from service)
 	var eventConn net.Conn
-	for attempt := 0; attempt < 30; attempt++ {
-		timeout := 2 * time.Second
+	for attempt := 0; attempt < 60; attempt++ {
+		timeout := 500 * time.Millisecond
 		conn, err := winio.DialPipe(eventPipeName, &timeout)
 		if err == nil {
 			eventConn = conn
-			fmt.Printf("[Agent] Connected to event pipe\n")
+			mlog.Printf("[Agent] Connected to event pipe (attempt %d)\n", attempt+1)
 			break
 		}
 		if attempt == 0 {
-			fmt.Printf("[Agent] Waiting for service event pipe...\n")
+			mlog.Printf("[Agent] Waiting for service event pipe...\n")
+		} else if attempt%10 == 0 {
+			mlog.Printf("[Agent] Still waiting for event pipe (attempt %d: %v)\n", attempt+1, err)
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 	}
 	if eventConn == nil {
-		fmt.Println("[ERROR] Could not connect to service event pipe after 30s")
+		mlog.Println("[ERROR] Could not connect to service event pipe after 30s")
 		os.Exit(1)
 	}
 	defer eventConn.Close()
@@ -164,9 +225,9 @@ func main() {
 		c, err := winio.DialPipe(mainPipeName, &timeout)
 		if err == nil {
 			cmdConn = c
-			fmt.Println("[Agent] Connected to command pipe (for haptic triggers)")
+			mlog.Println("[Agent] Connected to command pipe (for haptic triggers)")
 		} else {
-			fmt.Printf("[WARN] Command pipe unavailable: %v — haptic feedback on actions disabled\n", err)
+			mlog.Printf("[WARN] Command pipe unavailable: %v — haptic feedback on actions disabled\n", err)
 		}
 	}
 	if cmdConn != nil {
@@ -181,17 +242,14 @@ func main() {
 
 	// Event reader goroutine — receives button events and executes actions
 	go func() {
-		fmt.Println("[Agent-DBG] Event reader goroutine started")
 		scanner := bufio.NewScanner(eventConn)
 		for scanner.Scan() {
-			line := scanner.Text()
-			fmt.Printf("[Agent-DBG] Raw line: %s\n", line[:min(80, len(line))])
-			handleEvent(cfg, line)
+			handleEvent(cfg, scanner.Text())
 		}
 		if err := scanner.Err(); err != nil {
-			fmt.Printf("[Agent] Event pipe error: %v\n", err)
+			mlog.Printf("[Agent] Event pipe error: %v\n", err)
 		}
-		fmt.Println("[Agent] Event pipe disconnected")
+		mlog.Println("[Agent] Event pipe disconnected")
 		os.Exit(0)
 	}()
 
@@ -204,10 +262,10 @@ func main() {
 
 	go func() {
 		if err := hook.Start(); err != nil {
-			fmt.Printf("[Agent] Mouse hook failed: %v\n", err)
+			mlog.Printf("[Agent] Mouse hook failed: %v\n", err)
 		}
 	}()
-	fmt.Println("[Agent] Mouse hook started")
+	mlog.Println("[Agent] Mouse hook started")
 
 	// Start foreground app detection for profile switching
 	detector := appdetect.NewDetector(func(exe string) {
@@ -217,31 +275,28 @@ func main() {
 			cfg.ActiveProfile = profileName
 			newMappings := cfg.GetActiveMappings()
 			hook.SetMappings(newMappings)
-			fmt.Printf("[Agent] App: %s → profile: %s\n", exe, profileName)
+			mlog.Printf("[Agent] App: %s → profile: %s\n", exe, profileName)
 		}
 	})
 	detector.Start()
 	defer detector.Stop()
-	fmt.Println("[Agent] App detection started")
+	mlog.Println("[Agent] App detection started")
 
-	fmt.Println("[Agent] Listening for events... (Ctrl+C to quit)")
+	mlog.Println("[Agent] Listening for events... (Ctrl+C to quit)")
 
 	// Wait for shutdown
 	<-sig
 	hook.Stop()
-	fmt.Println("[Agent] Shutting down")
+	mlog.Println("[Agent] Shutting down")
 }
 
 func handleEvent(cfg *config.Config, line string) {
 	var msg map[string]interface{}
 	if err := json.Unmarshal([]byte(line), &msg); err != nil {
-		fmt.Printf("[Agent-DBG] JSON parse error: %v (line=%q)\n", err, line[:min(80, len(line))])
 		return
 	}
 	eventName, _ := msg["event"].(string)
 	data, _ := msg["data"].(map[string]interface{})
-	// DEBUG: log all received events
-	fmt.Printf("[Agent-DBG] Event received: %s\n", eventName)
 
 	switch eventName {
 	case "button_event":
@@ -249,18 +304,31 @@ func handleEvent(cfg *config.Config, line string) {
 	case "gesture_move":
 		dx, _ := data["dx"].(float64)
 		dy, _ := data["dy"].(float64)
-		gesture.accumulate(int(dx), int(dy))
+		direction := gesture.accumulate(int(dx), int(dy))
+		if direction != "" {
+			// Threshold crossed mid-hold → fire action immediately
+			mappings := cfg.GetActiveMappings()
+			swipeKey := gesture.button + "_" + direction
+			actionID := mappings[swipeKey]
+			if actionID == "" || actionID == "none" {
+				actionID = mappings[gesture.button]
+			}
+			if actionID != "" && actionID != "none" {
+				mlog.Printf("[Agent] Gesture %s swipe %s → %s\n", gesture.button, direction, actionID)
+				input.ExecuteAction(actionID)
+			}
+		}
 	case "config_changed":
 		handleConfigChanged(cfg, data)
 	case "battery_update":
 		level, _ := data["level"].(float64)
 		charging, _ := data["charging"].(bool)
-		fmt.Printf("[Agent] Battery: %.0f%% charging=%v\n", level, charging)
+		mlog.Printf("[Agent] Battery: %.0f%% charging=%v\n", level, charging)
 	case "device_connected":
 		name, _ := data["name"].(string)
-		fmt.Printf("[Agent] Device connected: %s\n", name)
+		mlog.Printf("[Agent] Device connected: %s\n", name)
 	case "device_disconnected":
-		fmt.Println("[Agent] Device disconnected")
+		mlog.Println("[Agent] Device disconnected")
 	}
 }
 
@@ -292,34 +360,19 @@ func handleButtonEvent(cfg *config.Config, data map[string]interface{}) {
 		}
 		if state == "up" {
 			btn, direction := gesture.finish()
-			if btn == "" {
-				return
+			if btn == "" || direction == "" {
+				return // swipe already handled during hold, or aborted gesture
 			}
 
-			var actionID string
+			// Only "click" reaches here — swipes are handled in gesture_move
 			if direction == "click" {
-				// No significant movement → fire click action
-				actionID = mappings[button]
-			} else {
-				// Swipe detected → fire directional action
-				swipeKey := button + "_" + direction // e.g. "gesture_right"
-				actionID = mappings[swipeKey]
+				actionID := mappings[button]
 				if actionID == "" || actionID == "none" {
-					// No directional mapping → fall back to click
-					actionID = mappings[button]
+					return
 				}
+				mlog.Printf("[Agent] Gesture %s click → %s\n", btn, actionID)
+				input.ExecuteAction(actionID)
 			}
-
-			if actionID == "" || actionID == "none" {
-				return
-			}
-
-			if direction == "click" {
-				fmt.Printf("[Agent] Gesture %s click → %s\n", btn, actionID)
-			} else {
-				fmt.Printf("[Agent] Gesture %s swipe %s → %s\n", btn, direction, actionID)
-			}
-			input.ExecuteAction(actionID)
 			return
 		}
 	}
@@ -334,7 +387,7 @@ func handleButtonEvent(cfg *config.Config, data map[string]interface{}) {
 		return
 	}
 
-	fmt.Printf("[Agent] Button %s → action %s\n", button, actionID)
+	mlog.Printf("[Agent] Button %s → action %s\n", button, actionID)
 	input.ExecuteAction(actionID)
 }
 
@@ -345,14 +398,14 @@ func handleConfigChanged(cfg *config.Config, data map[string]interface{}) {
 	// Reload config from disk
 	newCfg, err := config.Load()
 	if err != nil {
-		fmt.Printf("[Agent] Config reload failed: %v\n", err)
+		mlog.Printf("[Agent] Config reload failed: %v\n", err)
 		return
 	}
 	cfg.Version = newCfg.Version
 	cfg.ActiveProfile = newCfg.ActiveProfile
 	cfg.Profiles = newCfg.Profiles
 	cfg.Settings = newCfg.Settings
-	fmt.Printf("[Agent] Config reloaded: active=%s\n", cfg.ActiveProfile)
+	mlog.Printf("[Agent] Config reloaded: active=%s\n", cfg.ActiveProfile)
 
 	// Update hook mappings
 	if globalHookRef != nil {
@@ -371,5 +424,68 @@ func resolveButton(button string) string {
 		return "gesture"
 	default:
 		return button
+	}
+}
+
+// ── Agent Health/Version IPC Server ──────────────────────────
+// Listens on \\.\pipe\MasterMice-agent for version queries.
+// Protocol: JSON-lines, same as the main service.
+// Supports: {"cmd":"health"} → {"ok":true,"data":{"version":"X.Y.Z"}}
+func runAgentHealthServer() {
+	cfg := &winio.PipeConfig{
+		SecurityDescriptor: "D:P(A;;GA;;;WD)",
+		MessageMode:        false,
+	}
+
+	l, err := winio.ListenPipe(agentPipeName, cfg)
+	if err != nil {
+		mlog.Printf("[Agent-IPC] Failed to listen on %s: %v\n", agentPipeName, err)
+		return
+	}
+	defer l.Close()
+	mlog.Printf("[Agent-IPC] Health endpoint on %s\n", agentPipeName)
+
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			continue
+		}
+		go handleAgentHealthClient(conn)
+	}
+}
+
+func handleAgentHealthClient(conn net.Conn) {
+	defer conn.Close()
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		line := scanner.Text()
+		var req map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &req); err != nil {
+			continue
+		}
+
+		cmd, _ := req["cmd"].(string)
+		id, _ := req["id"].(float64)
+
+		var resp []byte
+		switch cmd {
+		case "health":
+			resp, _ = json.Marshal(map[string]interface{}{
+				"id": int(id),
+				"ok": true,
+				"data": map[string]interface{}{
+					"version": version,
+					"type":    "mastermice-agent",
+				},
+			})
+		default:
+			resp, _ = json.Marshal(map[string]interface{}{
+				"id":    int(id),
+				"ok":    false,
+				"error": "unknown command",
+			})
+		}
+		resp = append(resp, '\n')
+		conn.Write(resp)
 	}
 }

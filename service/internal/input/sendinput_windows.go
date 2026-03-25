@@ -90,6 +90,16 @@ func ExecuteAction(actionID string) bool {
 		return false
 	}
 
+	// Special actions that use DesktopManager (EnumWindows + exact position restore)
+	switch actionID {
+	case "minimize_all":
+		Desktop.MinimizeAll()
+		return true
+	case "restore_all":
+		Desktop.RestoreAll()
+		return true
+	}
+
 	action, ok := AllActions[actionID]
 	if !ok || action.Keys == nil {
 		return false
@@ -97,9 +107,16 @@ func ExecuteAction(actionID string) bool {
 
 	sendKeyCombo(action.Keys)
 
-	// Haptic feedback on virtual desktop switch: Light pulse (0x02)
-	if actionID == "virtual_desktop_left" || actionID == "virtual_desktop_right" {
-		triggerHaptic(0x02) // Light pulse
+	// Haptic feedback on actions (per-event type → pulse type mapping)
+	// TODO: make configurable via UI per-event haptic settings
+	hapticMap := map[string]int{
+		"virtual_desktop_left":  0x04, // Tick
+		"virtual_desktop_right": 0x04, // Tick
+		"minimize_all":          0x02, // Light
+		"restore_all":           0x02, // Light
+	}
+	if pulse, ok := hapticMap[actionID]; ok {
+		triggerHaptic(pulse)
 	}
 
 	return true

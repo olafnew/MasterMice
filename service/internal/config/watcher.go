@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	mlog "github.com/olafnew/mastermice-svc/internal/logging"
 	"path/filepath"
 	"sync"
 	"time"
@@ -81,12 +82,12 @@ func (w *Watcher) Start() error {
 				if !ok {
 					return
 				}
-				fmt.Printf("[ConfigWatch] Error: %v\n", err)
+				mlog.Printf("[ConfigWatch] Error: %v\n", err)
 			}
 		}
 	}()
 
-	fmt.Printf("[ConfigWatch] Watching %s\n", dir)
+	mlog.Printf("[ConfigWatch] Watching %s\n", dir)
 	return nil
 }
 
@@ -103,12 +104,12 @@ func (w *Watcher) GetConfig() *Config {
 func (w *Watcher) reload() {
 	newCfg, err := Load()
 	if err != nil {
-		fmt.Printf("[ConfigWatch] Reload failed: %v\n", err)
+		mlog.Printf("[ConfigWatch] Reload failed: %v\n", err)
 		return
 	}
 
 	w.cfg = newCfg
-	fmt.Println("[ConfigWatch] Config reloaded")
+	mlog.Println("[ConfigWatch] Config reloaded")
 
 	w.mu.Lock()
 	cbs := make([]func(*Config), len(w.callbacks))

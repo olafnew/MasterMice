@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	mlog "github.com/olafnew/mastermice-svc/internal/logging"
 	"net"
 
 	winio "github.com/Microsoft/go-winio"
@@ -37,7 +38,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return fmt.Errorf("ipc: failed to create pipe %s: %w", PipeName, err)
 	}
 
-	fmt.Printf("[IPC] Listening on %s\n", PipeName)
+	mlog.Printf("[IPC] Listening on %s\n", PipeName)
 
 	// Close listener when context is done
 	go func() {
@@ -52,12 +53,12 @@ func (s *Server) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil // clean shutdown
 			default:
-				fmt.Printf("[IPC] Accept error: %v\n", err)
+				mlog.Printf("[IPC] Accept error: %v\n", err)
 				continue
 			}
 		}
 
-		fmt.Printf("[IPC] Client connected (%d total)\n", s.broadcaster.ClientCount()+1)
+		mlog.Printf("[IPC] Client connected (%d total)\n", s.broadcaster.ClientCount()+1)
 		s.broadcaster.Add(conn)
 		go s.handleClient(conn)
 	}
@@ -68,7 +69,7 @@ func (s *Server) handleClient(conn net.Conn) {
 	defer func() {
 		s.broadcaster.Remove(conn)
 		conn.Close()
-		fmt.Printf("[IPC] Client disconnected (%d remaining)\n", s.broadcaster.ClientCount())
+		mlog.Printf("[IPC] Client disconnected (%d remaining)\n", s.broadcaster.ClientCount())
 	}()
 
 	scanner := bufio.NewScanner(conn)

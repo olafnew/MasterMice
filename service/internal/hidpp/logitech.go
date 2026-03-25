@@ -1,7 +1,7 @@
 package hidpp
 
 import (
-	"fmt"
+	mlog "github.com/olafnew/mastermice-svc/internal/logging"
 	"os"
 	"os/exec"
 	"strconv"
@@ -62,7 +62,7 @@ func KillLogitechSoftware() *KillLogitechResult {
 		err := exec.Command("taskkill", "/F", "/IM", proc).Run()
 		if err == nil {
 			result.KilledProcesses = append(result.KilledProcesses, proc)
-			fmt.Printf("[LOGI] Killed process: %s\n", proc)
+			mlog.Printf("[LOGI] Killed process: %s\n", proc)
 		}
 	}
 
@@ -75,14 +75,14 @@ func KillLogitechSoftware() *KillLogitechResult {
 		err := exec.Command("sc", "stop", svc).Run()
 		if err == nil {
 			result.StoppedServices = append(result.StoppedServices, svc)
-			fmt.Printf("[LOGI] Stopped service: %s\n", svc)
+			mlog.Printf("[LOGI] Stopped service: %s\n", svc)
 		}
 
 		// Disable the service (prevents auto-restart by Windows SCM)
 		err = exec.Command("sc", "config", svc, "start=", "disabled").Run()
 		if err == nil {
 			result.DisabledServices = append(result.DisabledServices, svc)
-			fmt.Printf("[LOGI] Disabled service: %s\n", svc)
+			mlog.Printf("[LOGI] Disabled service: %s\n", svc)
 		}
 	}
 
@@ -92,7 +92,7 @@ func KillLogitechSoftware() *KillLogitechResult {
 		running2 := findRunningLogiProcesses()
 		for _, proc := range running2 {
 			exec.Command("taskkill", "/F", "/IM", proc).Run()
-			fmt.Printf("[LOGI] Killed (retry): %s\n", proc)
+			mlog.Printf("[LOGI] Killed (retry): %s\n", proc)
 		}
 	}
 
@@ -112,7 +112,7 @@ func KillLogitechSoftware() *KillLogitechResult {
 		err := exec.Command("taskkill", "/F", "/IM", proc).Run()
 		if err == nil {
 			result.KilledProcesses = append(result.KilledProcesses, proc)
-			fmt.Printf("[LOGI] Killed (wildcard): %s\n", proc)
+			mlog.Printf("[LOGI] Killed (wildcard): %s\n", proc)
 		}
 	}
 
@@ -128,7 +128,7 @@ func RestoreLogitechServices() {
 	for svc, startType := range originalServiceStates {
 		err := exec.Command("sc", "config", svc, "start=", startType).Run()
 		if err == nil {
-			fmt.Printf("[LOGI] Restored service %s to start=%s\n", svc, startType)
+			mlog.Printf("[LOGI] Restored service %s to start=%s\n", svc, startType)
 		}
 	}
 	originalServiceStates = map[string]string{}
@@ -158,7 +158,7 @@ func saveOriginalStartType(svcName string) {
 			} else {
 				originalServiceStates[svcName] = "auto" // safe default
 			}
-			fmt.Printf("[LOGI] Saved %s original start type: %s\n",
+			mlog.Printf("[LOGI] Saved %s original start type: %s\n",
 				svcName, originalServiceStates[svcName])
 			return
 		}
@@ -282,7 +282,7 @@ func KillOldMasterMiceByName(targetExe string) {
 			continue // skip our own process
 		}
 		exec.Command("taskkill", "/F", "/PID", pidStr).Run()
-		fmt.Printf("[KILL] Killed old %s (PID %d)\n", targetExe, pid)
+		mlog.Printf("[KILL] Killed old %s (PID %d)\n", targetExe, pid)
 	}
 
 	// Brief wait for handles to release

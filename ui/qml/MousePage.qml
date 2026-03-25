@@ -647,9 +647,23 @@ Item {
                     Item { width: 1; height: 24 }
                 }
 
+                // ── Click-outside backdrop (dismisses picker) ──
+                // Only covers the mouse image area, NOT the button panel on the right
+                MouseArea {
+                    visible: selectedButton !== ""
+                    z: 99
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: parent.width - 250  // leave button panel area uncovered
+                    onClicked: {
+                        selectedButton = ""
+                        selectedButtonName = ""
+                        selectedActionId = ""
+                    }
+                }
+
                 // ── Action picker overlay ────────────────
-                // Positioned over the mouse image, inside the Flickable
-                // but OUTSIDE the Column (so it can float with z-order)
                 Rectangle {
                     id: pickerOverlay
                     visible: selectedButton !== ""
@@ -667,12 +681,39 @@ Item {
                         Flickable {
                             id: pickerFlick
                             anchors {
-                                fill: parent
+                                left: parent.left
+                                right: parent.right
+                                top: parent.top
+                                bottom: parent.bottom
                                 margins: 20
+                                rightMargin: 24
                             }
                             contentHeight: pickerScrollContent.implicitHeight
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
+                            flickableDirection: Flickable.VerticalFlick
+
+                            ScrollBar.vertical: ScrollBar {
+                                id: pickerScrollBar
+                                active: true
+                                policy: pickerFlick.contentHeight > pickerFlick.height
+                                        ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
+                                contentItem: Rectangle {
+                                    implicitWidth: 4
+                                    radius: 2
+                                    color: pickerScrollBar.pressed ? mousePage.theme.accent
+                                         : pickerScrollBar.hovered ? Qt.lighter(mousePage.theme.accent, 1.3)
+                                         : Qt.rgba(1, 1, 1, 0.25)
+                                    opacity: pickerScrollBar.active ? 1.0 : 0.0
+                                    Behavior on opacity { NumberAnimation { duration: 200 } }
+                                    Behavior on color { ColorAnimation { duration: 150 } }
+                                }
+                                background: Rectangle {
+                                    implicitWidth: 4
+                                    radius: 2
+                                    color: Qt.rgba(1, 1, 1, 0.06)
+                                }
+                            }
 
                             Column {
                                 id: pickerScrollContent
@@ -709,29 +750,8 @@ Item {
                                         }
                                     }
 
-                                    // Close button
-                                    Rectangle {
-                                        width: 28; height: 28; radius: 14
-                                        color: closeMa.containsMouse ? mousePage.theme.bgSubtle : "transparent"
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        Text {
-                                            anchors.centerIn: parent
-                                            text: "\u2715"
-                                            font.pixelSize: 14
-                                            color: mousePage.theme.textSecondary
-                                        }
-                                        MouseArea {
-                                            id: closeMa
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                selectedButton = ""
-                                                selectedButtonName = ""
-                                                selectedActionId = ""
-                                            }
-                                        }
-                                    }
+                                    // Click outside the picker to close it
+                                    // (no X button — cleaner look)
                                 }
 
                                 // Action categories
@@ -835,6 +855,8 @@ Item {
                                 }
                             }
                         }
+
+                        // ScrollBar is now attached to the Flickable via ScrollBar.vertical
                     }
                 }
         }
